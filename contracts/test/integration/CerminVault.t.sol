@@ -250,16 +250,43 @@ contract CerminVaultTest is Test {
         assertGt(musd.balanceOf(user), 0, "musd remainder paid");
     }
 
-    function test_Close_RevertsWhenInsufficientFunds() public {
+    function test_Close_RevertsWhenOwnerCannotTopUp() public {
         vault = _open(ONE_BTC);
 
-        // Owner drains spendable then attempts close — vault value alone covers ~25k
-        // of 50k debt; closeTrove path needs full debt held by the caller.
+        // Mock BO charges no fee → trove debt == borrow. close() needs
+        // (debt − GAS_COMP) which is 200 MUSD less than borrow, so vault is
+        // actually over-funded and would succeed on the mock. Force a
+        // shortfall by inflating trove debt directly.
+        uint256 borrowAmount = troveManager.debt(address(vault));
+        troveManager.setTrove(address(vault), ONE_BTC, borrowAmount + 1_000e18);
+
+        // Owner does not approve nor hold extra MUSD → safeTransferFrom reverts.
+        vm.prank(user);
+        vm.expectRevert();
+        vault.close();
+    }
+
+    function test_Close_PullsShortfallFromOwner() public {
+        vault = _open(ONE_BTC);
+
+        // Inflate trove debt by 200 MUSD to simulate Mezo's gas comp + fee.
+        // After accounting for GAS_COMP refund, owner must top up the leftover.
+        uint256 borrowAmount = troveManager.debt(address(vault));
+        troveManager.setTrove(address(vault), ONE_BTC, borrowAmount + 1_000e18);
+
+        // Owner gets 1000 MUSD from elsewhere + approves the vault.
+        musd.mint(user, 1_000e18);
         vm.startPrank(user);
-        vault.withdrawSpendable(vault.state().spendableMusd, user);
-        vm.expectRevert(ICerminVault.InsufficientFundsToClose.selector);
+        musd.approve(address(vault), 1_000e18);
+
+        uint256 ownerMusdBefore = musd.balanceOf(user);
         vault.close();
         vm.stopPrank();
+
+        assertEq(troveManager.debt(address(vault)), 0, "debt cleared");
+        assertEq(troveManager.collateral(address(vault)), 0, "coll returned");
+        // Net: owner spent at most 1000 MUSD top-up minus any leftover refund.
+        assertLe(ownerMusdBefore - musd.balanceOf(user), 1_000e18, "spent <= top-up cap");
     }
 
     function test_Close_OwnerOnly() public {

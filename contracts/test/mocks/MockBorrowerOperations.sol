@@ -61,7 +61,10 @@ contract MockBorrowerOperations is IBorrowerOperations {
         uint256 debt = troveManager.getTroveDebt(msg.sender);
         uint256 coll = troveManager.getTroveColl(msg.sender);
 
-        if (debt > 0) musd.burn(msg.sender, debt);
+        // Mirror Mezo: caller burns (debt − GAS_COMP); the gas-pool's 200 MUSD
+        // is conceptually burned separately and isn't taken from the caller.
+        uint256 gasComp = 200e18;
+        if (debt > gasComp) musd.burn(msg.sender, debt - gasComp);
         troveManager.adjustTrove(msg.sender, -int256(coll), -int256(debt));
 
         if (coll > 0) {
