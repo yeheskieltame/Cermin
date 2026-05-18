@@ -171,24 +171,26 @@ contract CerminVaultTest is Test {
         vault.defend(address(0), address(0));
     }
 
-    function test_Defend_DrainsFullVaultWithYield() public {
-        // Regression for reviewer note on PR #3: when yield accrues, withdraw()
-        // can need ceil(assets→shares) > our share balance and revert. defend
-        // must fall back to redeem(allShares) when fromVault >= vaultValue.
+    function test_Defend_HarvestsYieldThenDrainsPrincipal() public {
+        // Under MUSDSavingsRate (rebase), defend must claimYield() first so the
+        // pending yield contributes to repay before any sMUSD principal is
+        // burned. Heavy BTC drop forces a deep drain.
         vault = _open(ONE_BTC);
 
-        // Accrue 1,000 MUSD yield → totalAssets and totalSupply diverge.
+        // 1,000 MUSD of protocol yield accrues to the vault's only depositor
+        // (= the Cermin vault).
         musd.mint(address(this), 1_000e18);
         musd.approve(address(savingsVault), 1_000e18);
         savingsVault.accrueYield(1_000e18);
 
-        // Catastrophic drop forces needRepay > vaultValue.
+        // Catastrophic drop → needRepay > sMUSD principal.
         priceFeed.setPrice(30_000e18);
 
         vm.prank(keeper);
         vault.defend(address(0), address(0));
 
-        assertEq(vault.state().smusdShares, 0, "vault fully drained");
+        assertEq(vault.state().smusdShares, 0, "principal fully drained");
+        assertEq(savingsVault.claimableYield(address(vault)), 0, "yield harvested");
     }
 
     function test_Defend_DrainsSpendableWhenVaultInsufficient() public {
@@ -231,7 +233,8 @@ contract CerminVaultTest is Test {
     function test_Close_ReturnsBtcAndExcessMusd() public {
         vault = _open(ONE_BTC);
 
-        // Simulate yield: top up MockSavingsVault with 1000 MUSD so vault value > debt-share.
+        // Simulate protocol yield arriving to the savings vault (1,000 MUSD).
+        // Yield accrues to the vault's only sMUSD holder = the Cermin vault.
         musd.mint(address(this), 1_000e18);
         musd.approve(address(savingsVault), 1_000e18);
         savingsVault.accrueYield(1_000e18);
