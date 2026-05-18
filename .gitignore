@@ -1,0 +1,32 @@
+# Foundry
+contracts/cache/
+contracts/out/
+contracts/broadcast/
+contracts/lib/
+
+# Node
+node_modules/
+.next/
+.turbo/
+.vercel/
+
+# Env
+.env
+.env.local
+*.env
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Frontend build
+frontend/.next/
+frontend/out/
+frontend/node_modules/
+
+# Agent
+agent/node_modules/
+agent/dist/
+agent/data/
