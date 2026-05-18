@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.33;
 
 /// @title ICerminVault — per-user proxy vault that wraps a single Mezo trove
 /// @notice Vault contracts are deployed as EIP-1167 clones; constructor logic lives on

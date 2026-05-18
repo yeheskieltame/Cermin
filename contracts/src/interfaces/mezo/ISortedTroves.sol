@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.33;
 
 /// @title ISortedTroves — Mezo SortedTroves (Liquity-style linked list of troves by NICR)
 /// @notice Cermin reads this off-chain to compute hint pairs; on-chain code does not call it.
