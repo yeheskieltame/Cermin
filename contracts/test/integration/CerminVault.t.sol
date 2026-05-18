@@ -199,12 +199,31 @@ contract CerminVaultTest is Test {
         uint256 btcBefore = user.balance;
 
         vm.prank(user);
-        vault.close(address(0), address(0));
+        vault.close();
 
         assertEq(troveManager.debt(address(vault)), 0, "debt cleared");
         assertEq(troveManager.collateral(address(vault)), 0, "coll returned");
         assertEq(user.balance, btcBefore + ONE_BTC, "btc back");
         assertGt(musd.balanceOf(user), 0, "musd remainder paid");
+    }
+
+    function test_Close_RevertsWhenInsufficientFunds() public {
+        vault = _open(ONE_BTC);
+
+        // Owner drains spendable then attempts close — vault value alone covers ~25k
+        // of 50k debt; closeTrove path needs full debt held by the caller.
+        vm.startPrank(user);
+        vault.withdrawSpendable(vault.state().spendableMusd, user);
+        vm.expectRevert(ICerminVault.InsufficientFundsToClose.selector);
+        vault.close();
+        vm.stopPrank();
+    }
+
+    function test_Close_OwnerOnly() public {
+        vault = _open(ONE_BTC);
+        vm.prank(keeper);
+        vm.expectRevert(ICerminVault.NotOwner.selector);
+        vault.close();
     }
 
     // ─────────────────────────────────────────────────────────────────────────
