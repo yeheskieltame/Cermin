@@ -5,42 +5,68 @@ import {Script, console2} from "forge-std/Script.sol";
 import {CerminVault} from "../src/CerminVault.sol";
 import {CerminFactory} from "../src/CerminFactory.sol";
 
-/// @notice Deploy script for Mezo testnet. Two contracts: vault implementation + factory.
-/// @dev Set MEZO_TESTNET_RPC + PRIVATE_KEY in .env, then fill the addresses below before
-///      running. After deploy, copy the factory address into the agent + frontend env files.
+/// @title Deploy — CerminVault impl + CerminFactory to Mezo testnet
+/// @notice All Mezo singleton addresses are read from environment variables so
+///         the script is reproducible without editing source. See `.env.example`
+///         in the contracts/ root for the required keys.
+///
+///         Usage:
+///           cp .env.example .env  # then fill in the addresses
+///           source .env
+///           forge script script/Deploy.s.sol:Deploy \
+///             --rpc-url $MEZO_TESTNET_RPC \
+///             --private-key $PRIVATE_KEY \
+///             --broadcast \
+///             --verify \
+///             --verifier blockscout \
+///             --verifier-url $MEZO_EXPLORER_API
 contract Deploy is Script {
-    // Mezo testnet addresses — fill before running.
-    // Source: https://mezo.org/docs/developers/
-    address constant BORROWER_OPS  = address(0); // TODO: BorrowerOperations
-    address constant TROVE_MANAGER = address(0); // TODO: TroveManager
-    address constant PRICE_FEED    = address(0); // TODO: PriceFeed
-    address constant MUSD          = 0x118917a40FAF1CD7a13dB0Ef56C86De7973Ac503;
-    address constant SAVINGS_VAULT = address(0); // TODO: MUSD Savings Vault
-
     function run() external {
+        address borrowerOps  = vm.envAddress("MEZO_BORROWER_OPS");
+        address troveManager = vm.envAddress("MEZO_TROVE_MANAGER");
+        address priceFeed    = vm.envAddress("MEZO_PRICE_FEED");
+        address musd         = vm.envAddress("MEZO_MUSD");
+        address savingsVault = vm.envAddress("MEZO_SAVINGS_VAULT");
+
+        _requireNonZero(borrowerOps,  "MEZO_BORROWER_OPS");
+        _requireNonZero(troveManager, "MEZO_TROVE_MANAGER");
+        _requireNonZero(priceFeed,    "MEZO_PRICE_FEED");
+        _requireNonZero(musd,         "MEZO_MUSD");
+        _requireNonZero(savingsVault, "MEZO_SAVINGS_VAULT");
+
         uint256 pk = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(pk);
-        console2.log("Deployer:", deployer);
-        console2.log("Chain ID:", block.chainid);
+
+        console2.log("Deployer:    ", deployer);
+        console2.log("Chain ID:    ", block.chainid);
+        console2.log("BorrowerOps: ", borrowerOps);
+        console2.log("TroveManager:", troveManager);
+        console2.log("PriceFeed:   ", priceFeed);
+        console2.log("MUSD:        ", musd);
+        console2.log("SavingsVault:", savingsVault);
 
         vm.startBroadcast(pk);
 
         CerminVault impl = new CerminVault(
-            BORROWER_OPS,
-            TROVE_MANAGER,
-            PRICE_FEED,
-            MUSD,
-            SAVINGS_VAULT
+            borrowerOps,
+            troveManager,
+            priceFeed,
+            musd,
+            savingsVault
         );
-        console2.log("CerminVault impl:", address(impl));
-
         CerminFactory factory = new CerminFactory(address(impl));
-        console2.log("CerminFactory:   ", address(factory));
 
         vm.stopBroadcast();
 
         console2.log("\n=== DEPLOY DONE ===");
-        console2.log("CERMIN_FACTORY_ADDRESS=%s", address(factory));
+        console2.log("CerminVault impl:        ", address(impl));
+        console2.log("CerminFactory:           ", address(factory));
+        console2.log("\nCopy into agent/.env and frontend/.env:");
         console2.log("CERMIN_VAULT_IMPL_ADDRESS=%s", address(impl));
+        console2.log("CERMIN_FACTORY_ADDRESS=%s", address(factory));
+    }
+
+    function _requireNonZero(address a, string memory name) private pure {
+        require(a != address(0), string.concat("Missing env: ", name));
     }
 }
