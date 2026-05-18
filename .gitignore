@@ -15,6 +15,14 @@ node_modules/
 .env.local
 *.env
 
+# Wallet / secrets — never commit any of these
+.deployer-wallet*
+.wallet*
+*.pem
+*.key
+keystore/
+.keystores/
+
 # OS / editor
 .DS_Store
 *.swp
