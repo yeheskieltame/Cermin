@@ -42,6 +42,7 @@ interface ICerminVault {
     error InsufficientFundsToClose();
     error EthTransferFailed();
     error Reentrancy();
+    error NoDefenseProgress();
 
     function initialize(address owner_, VaultParams calldata params_) external;
 
