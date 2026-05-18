@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.33;
 
 /// @title ITroveManager — Mezo TroveManager interface (subset used by Cermin)
 interface ITroveManager {

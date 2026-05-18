@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity 0.8.24;
+pragma solidity 0.8.33;
 
 import {ITroveManager} from "../../src/interfaces/mezo/ITroveManager.sol";
 
