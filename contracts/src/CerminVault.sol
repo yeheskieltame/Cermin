@@ -254,10 +254,15 @@ contract CerminVault is ICerminVault {
         uint256 needRepay = debt > targetDebt ? debt - targetDebt : 0;
         if (needRepay == 0) revert ICRAboveDefend();
 
-        // Drain savings vault first; spendable is the fallback.
-        // vaultValue = principal (sMUSD balance, 1:1) + pending yield to be claimed.
-        uint256 vaultValue = _vaultValue();
-        uint256 fromVault = needRepay <= vaultValue ? needRepay : vaultValue;
+        // Harvest any pending yield up-front and reclassify it as spendable.
+        // This keeps the post-op invariant `balanceOf(this) == spendableMusd`
+        // intact and means the principal-side accounting is pure 1:1 sMUSD.
+        uint256 yieldClaimed = ISavingsVault(SAVINGS_VAULT).claimYield();
+        if (yieldClaimed > 0) _state.spendableMusd += yieldClaimed;
+
+        // Drain principal first; spendable is the fallback.
+        uint256 principal = _state.smusdShares;
+        uint256 fromVault = needRepay <= principal ? needRepay : principal;
         uint256 fromSpendable = needRepay - fromVault;
         if (fromSpendable > _state.spendableMusd) {
             // Cap repay at available funds rather than reverting outright.
@@ -269,23 +274,10 @@ contract CerminVault is ICerminVault {
             _state.spendableMusd -= fromSpendable;
         }
         if (fromVault > 0) {
-            // Harvest any pending yield first — adds MUSD to our balance and
-            // does not change sMUSD share count.
-            ISavingsVault(SAVINGS_VAULT).claimYield();
-            uint256 principal = _state.smusdShares;
-            uint256 musdHeld = IERC20(MUSD).balanceOf(address(this));
-            // The principal portion of fromVault that still needs to come out
-            // of the share balance, after yield has covered part of it.
-            uint256 needFromPrincipal = musdHeld >= needRepay ? 0 : needRepay - musdHeld;
-            if (needFromPrincipal > principal) needFromPrincipal = principal;
-            if (needFromPrincipal > 0) {
-                _state.smusdShares = principal - needFromPrincipal;
-                ISavingsVault(SAVINGS_VAULT).withdraw(needFromPrincipal);
-            }
+            _state.smusdShares = principal - fromVault;
+            ISavingsVault(SAVINGS_VAULT).withdraw(fromVault);
         }
 
-        uint256 finalBalance = IERC20(MUSD).balanceOf(address(this));
-        if (finalBalance < needRepay) needRepay = finalBalance;
         if (needRepay == 0) revert ICRAboveDefend();
 
         IERC20(MUSD).forceApprove(BORROWER_OPS, needRepay);
