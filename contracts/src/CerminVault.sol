@@ -116,6 +116,7 @@ contract CerminVault is ICerminVault {
 
         _allocateBorrowed(borrowAmount);
         _state.lastSkimPrice = price;
+        _state.lastSeenPrice = price;
 
         emit VaultOpened(_owner, _params);
     }
@@ -225,6 +226,7 @@ contract CerminVault is ICerminVault {
 
         (uint256 toSpendable, uint256 toVault) = _allocateBorrowed(newCapacity);
         _state.lastSkimPrice = price;
+        _state.lastSeenPrice = price;
 
         emit Skimmed(price, toSpendable, toVault, debt + newCapacity);
     }
@@ -282,6 +284,7 @@ contract CerminVault is ICerminVault {
 
         uint256 icrAfter = _icrBps(price);
         if (icrAfter <= icrBefore) revert NoDefenseProgress();
+        _state.lastSeenPrice = price;
         emit Defended(icrBefore, icrAfter, needRepay, fromVault, fromSpendable);
     }
 
@@ -289,8 +292,14 @@ contract CerminVault is ICerminVault {
     // Views
     // ─────────────────────────────────────────────────────────────────────────
 
+    /// @notice ICR computed at the last-cached price (open / skim / defend
+    ///         each update `lastSeenPrice`). Returns 0 before open. Pure
+    ///         view — does not touch the Mezo oracle precompile (which
+    ///         reverts under STATICCALL).
     function getICR() external view override returns (uint256) {
-        return _icrBps(IPriceFeed(PRICE_FEED).fetchPrice());
+        uint256 price = _state.lastSeenPrice;
+        if (price == 0) return 0;
+        return _icrBps(price);
     }
 
     function getDebt() external view override returns (uint256) {

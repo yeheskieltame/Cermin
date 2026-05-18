@@ -15,7 +15,8 @@ interface ICerminVault {
     }
 
     struct VaultState {
-        uint256 lastSkimPrice;
+        uint256 lastSkimPrice;   // BTC/USD at last skim — drives skim threshold
+        uint256 lastSeenPrice;   // BTC/USD at last state-changing op — drives getICR view
         uint256 spendableMusd;
         uint256 smusdShares;
         uint64  createdAt;
