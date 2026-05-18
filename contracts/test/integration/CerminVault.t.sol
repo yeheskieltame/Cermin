@@ -289,4 +289,73 @@ contract CerminVaultTest is Test {
         vm.expectRevert(ICerminVault.AlreadyInitialized.selector);
         vault.initialize(user, _balancedParams());
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Deposit
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_Deposit_AddsCollateral() public {
+        vault = _open(ONE_BTC);
+        uint256 collBefore = troveManager.collateral(address(vault));
+
+        vm.prank(user);
+        vault.deposit{value: 0.5 ether}(address(0), address(0));
+
+        assertEq(troveManager.collateral(address(vault)), collBefore + 0.5 ether);
+    }
+
+    function test_Deposit_ZeroValueIsNoop() public {
+        vault = _open(ONE_BTC);
+        uint256 collBefore = troveManager.collateral(address(vault));
+        vm.prank(user);
+        vault.deposit(address(0), address(0));
+        assertEq(troveManager.collateral(address(vault)), collBefore);
+    }
+
+    function test_Deposit_OwnerOnly() public {
+        vault = _open(ONE_BTC);
+        vm.deal(keeper, 1 ether);
+        vm.prank(keeper);
+        vm.expectRevert(ICerminVault.NotOwner.selector);
+        vault.deposit{value: 0.1 ether}(address(0), address(0));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Withdraw spendable bounds
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_WithdrawSpendable_RevertsWhenInsufficient() public {
+        vault = _open(ONE_BTC);
+        uint256 available = vault.state().spendableMusd;
+        vm.prank(user);
+        vm.expectRevert(ICerminVault.InsufficientSpendable.selector);
+        vault.withdrawSpendable(available + 1, user);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Skim edges
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_Skim_RevertsWhenNoCapacity() public {
+        vault = _open(ONE_BTC);
+        // Bump price 6% (above 5% threshold) → maxBorrow = 1 BTC × $106k × 50% = 53k.
+        // Inflate the trove debt to exactly that cap so skim finds no capacity.
+        priceFeed.setPrice(BTC_PRICE * 106 / 100);
+        troveManager.setTrove(address(vault), ONE_BTC, 53_000e18);
+
+        vm.expectRevert(ICerminVault.NoSkimCapacity.selector);
+        vault.skim(address(0), address(0));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Factory dup
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function test_Factory_RevertsOnDuplicateVault() public {
+        _open(ONE_BTC);
+        vm.deal(user, ONE_BTC);
+        vm.prank(user);
+        vm.expectRevert(); // VaultAlreadyExists from factory
+        factory.createVault{value: ONE_BTC}(_balancedParams(), 0, address(0), address(0));
+    }
 }
