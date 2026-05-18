@@ -262,14 +262,14 @@ contract CerminVault is ICerminVault {
             needRepay = fromVault + fromSpendable;
         }
 
-        if (fromVault > 0) {
-            uint256 sharesToRedeem = ISavingsVault(SAVINGS_VAULT).convertToShares(fromVault);
-            if (sharesToRedeem > _state.smusdShares) sharesToRedeem = _state.smusdShares;
-            _state.smusdShares -= sharesToRedeem;
-            ISavingsVault(SAVINGS_VAULT).redeem(sharesToRedeem, address(this), address(this));
-        }
         if (fromSpendable > 0) {
             _state.spendableMusd -= fromSpendable;
+        }
+        if (fromVault > 0) {
+            // withdraw(assets,…) burns exactly enough shares for `fromVault` MUSD —
+            // exact assets out, no double-conversion rounding loss.
+            uint256 sharesBurned = ISavingsVault(SAVINGS_VAULT).withdraw(fromVault, address(this), address(this));
+            _state.smusdShares -= sharesBurned;
         }
 
         uint256 musdBalance = IERC20(MUSD).balanceOf(address(this));
@@ -280,6 +280,7 @@ contract CerminVault is ICerminVault {
         IBorrowerOperations(BORROWER_OPS).repayMUSD(needRepay, upperHint, lowerHint);
 
         uint256 icrAfter = _icrBps(price);
+        if (icrAfter <= icrBefore) revert NoDefenseProgress();
         emit Defended(icrBefore, icrAfter, needRepay, fromVault, fromSpendable);
     }
 
