@@ -16,7 +16,7 @@ contract MockPriceFeed is IPriceFeed {
         price = newPrice;
     }
 
-    function fetchPrice() external view override returns (uint256) {
+    function fetchPrice() external override returns (uint256) {
         return price;
     }
 }
