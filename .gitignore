@@ -23,6 +23,9 @@ node_modules/
 keystore/
 .keystores/
 
+# Local dev scratch — diagrams, notes, throwaway scripts
+dev/
+
 # OS / editor
 .DS_Store
 *.swp
