@@ -171,6 +171,26 @@ contract CerminVaultTest is Test {
         vault.defend(address(0), address(0));
     }
 
+    function test_Defend_DrainsFullVaultWithYield() public {
+        // Regression for reviewer note on PR #3: when yield accrues, withdraw()
+        // can need ceil(assets→shares) > our share balance and revert. defend
+        // must fall back to redeem(allShares) when fromVault >= vaultValue.
+        vault = _open(ONE_BTC);
+
+        // Accrue 1,000 MUSD yield → totalAssets and totalSupply diverge.
+        musd.mint(address(this), 1_000e18);
+        musd.approve(address(savingsVault), 1_000e18);
+        savingsVault.accrueYield(1_000e18);
+
+        // Catastrophic drop forces needRepay > vaultValue.
+        priceFeed.setPrice(30_000e18);
+
+        vm.prank(keeper);
+        vault.defend(address(0), address(0));
+
+        assertEq(vault.state().smusdShares, 0, "vault fully drained");
+    }
+
     function test_Defend_DrainsSpendableWhenVaultInsufficient() public {
         vault = _open(ONE_BTC);
         // BTC → $35k → ICR = 70%. With emergency overshoot (target ICR 160%):

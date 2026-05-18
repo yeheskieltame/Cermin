@@ -266,10 +266,18 @@ contract CerminVault is ICerminVault {
             _state.spendableMusd -= fromSpendable;
         }
         if (fromVault > 0) {
-            // withdraw(assets,…) burns exactly enough shares for `fromVault` MUSD —
-            // exact assets out, no double-conversion rounding loss.
-            uint256 sharesBurned = ISavingsVault(SAVINGS_VAULT).withdraw(fromVault, address(this), address(this));
-            _state.smusdShares -= sharesBurned;
+            uint256 shares = _state.smusdShares;
+            // ERC4626 withdraw rounds shares UP, while convertToAssets rounds
+            // DOWN. When draining the full vault, ceil(fromVault → shares) can
+            // exceed our actual share balance and revert. Drain by share count
+            // in that case; use exact-assets withdraw for partial unwinds.
+            if (fromVault >= vaultValue) {
+                _state.smusdShares = 0;
+                ISavingsVault(SAVINGS_VAULT).redeem(shares, address(this), address(this));
+            } else {
+                uint256 sharesBurned = ISavingsVault(SAVINGS_VAULT).withdraw(fromVault, address(this), address(this));
+                _state.smusdShares -= sharesBurned;
+            }
         }
 
         uint256 musdBalance = IERC20(MUSD).balanceOf(address(this));
