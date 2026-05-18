@@ -123,7 +123,7 @@ contract CerminVault is ICerminVault {
     }
 
     /// @inheritdoc ICerminVault
-    function close(address upperHint, address lowerHint)
+    function close()
         external
         override
         whenInitialized
@@ -131,26 +131,22 @@ contract CerminVault is ICerminVault {
         nonReentrant
     {
         // Pull everything out of the savings vault, then settle the trove.
-        if (_state.smusdShares > 0) {
-            ISavingsVault(SAVINGS_VAULT).redeem(_state.smusdShares, address(this), address(this));
+        uint256 shares = _state.smusdShares;
+        if (shares > 0) {
             _state.smusdShares = 0;
+            ISavingsVault(SAVINGS_VAULT).redeem(shares, address(this), address(this));
         }
 
+        // Mezo enforces a 2,000 MUSD minimum debt, so an active trove always has
+        // debt > 0. closeTrove burns exactly the trove's debt from the caller and
+        // returns all BTC collateral.
         uint256 debt = ITroveManager(TROVE_MANAGER).getTroveDebt(address(this));
         uint256 musdBalance = IERC20(MUSD).balanceOf(address(this));
         if (musdBalance < debt) revert InsufficientFundsToClose();
 
-        IERC20(MUSD).forceApprove(BORROWER_OPS, debt);
-
-        if (debt > 0) {
-            // Mezo's closeTrove burns the trove's debt-worth of MUSD held by the caller and returns BTC.
-            IBorrowerOperations(BORROWER_OPS).closeTrove();
-        } else {
-            // Edge case: trove already at zero debt. Nothing to repay; pull collateral via repay path.
-            IBorrowerOperations(BORROWER_OPS).repayMUSD(0, upperHint, lowerHint);
-        }
-
         _state.spendableMusd = 0;
+        IERC20(MUSD).forceApprove(BORROWER_OPS, debt);
+        IBorrowerOperations(BORROWER_OPS).closeTrove();
 
         uint256 musdRemainder = IERC20(MUSD).balanceOf(address(this));
         if (musdRemainder > 0) {
