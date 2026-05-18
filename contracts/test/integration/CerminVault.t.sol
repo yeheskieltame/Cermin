@@ -216,6 +216,15 @@ contract CerminVaultTest is Test {
         impl.initialize(user, _balancedParams());
     }
 
+    function test_Implementation_OpenReverts() public {
+        // Regression for M-01: even with funded BTC, the implementation must
+        // reject open() so a griefer cannot create a trove on the impl and
+        // lock funds permanently.
+        vm.deal(address(this), 1 ether);
+        vm.expectRevert(ICerminVault.AlreadyOpened.selector);
+        impl.open{value: ONE_BTC}(0, address(0), address(0));
+    }
+
     function test_Clone_CannotBeInitializedTwice() public {
         vault = _open(ONE_BTC);
         vm.expectRevert(ICerminVault.AlreadyInitialized.selector);

@@ -70,8 +70,11 @@ contract CerminVault is ICerminVault {
         MUSD = musd_;
         SAVINGS_VAULT = savingsVault_;
 
-        // The implementation must never be initialized; only clones can.
+        // Lock the implementation: neither initialize() nor open() may run on
+        // the impl itself. Clones inherit code but not state, so they start at
+        // _initialized = false / _opened = false.
         _initialized = true;
+        _opened = true;
     }
 
     receive() external payable {}
