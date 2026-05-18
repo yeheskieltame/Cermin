@@ -21,7 +21,6 @@ contract CerminVault is ICerminVault {
     uint256 private constant ICR_PRECISION = 1e18;
     uint256 private constant PRICE_PRECISION = 1e18;
     uint256 private constant MIN_MUSD_DEBT = 2_000e18;
-    uint256 private constant MAX_FEE_PERCENTAGE = 5e15; // 0.5% — Mezo borrow rate is 1% APR fixed
     uint256 private constant DEFEND_OVERSHOOT_BPS = 2_000; // emergency repay overshoots by 20%
 
     /// @dev Mezo network singletons. Set once on the implementation; clones read the
@@ -110,7 +109,6 @@ contract CerminVault is ICerminVault {
         if (maxBorrow != 0 && borrowAmount > maxBorrow) revert BorrowExceedsCap();
 
         IBorrowerOperations(BORROWER_OPS).openTrove{value: msg.value}(
-            MAX_FEE_PERCENTAGE,
             borrowAmount,
             upperHint,
             lowerHint
@@ -220,7 +218,6 @@ contract CerminVault is ICerminVault {
         uint256 newCapacity = maxBorrow - debt;
 
         IBorrowerOperations(BORROWER_OPS).withdrawMUSD(
-            MAX_FEE_PERCENTAGE,
             newCapacity,
             upperHint,
             lowerHint
@@ -293,7 +290,7 @@ contract CerminVault is ICerminVault {
     // ─────────────────────────────────────────────────────────────────────────
 
     function getICR() external view override returns (uint256) {
-        return _icrBps(IPriceFeed(PRICE_FEED).lastGoodPrice());
+        return _icrBps(IPriceFeed(PRICE_FEED).fetchPrice());
     }
 
     function getDebt() external view override returns (uint256) {
