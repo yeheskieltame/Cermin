@@ -93,4 +93,43 @@ contract VaultParamsTest is Test {
         p.defendICR = 19_500;
         _expectInvalid(p);
     }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // Fuzz: every accepted VaultParams must respect the documented invariants.
+    // ─────────────────────────────────────────────────────────────────────────
+
+    function testFuzz_ValidParamsAccepted(
+        uint16 ltv,
+        uint16 defendIcr,
+        uint16 emergencyIcr,
+        uint16 skimBps,
+        uint16 spendable
+    ) public {
+        // Constrain to the legal range so fuzzer doesn't waste runs. Use a slightly
+        // tighter LTV floor so the open-time ICR (=10000²/ltv) stays within uint16.
+        ltv = uint16(bound(uint256(ltv), 2_000, 9_000));
+        emergencyIcr = uint16(bound(uint256(emergencyIcr), 11_500, 30_000));
+        uint256 openIcr = (10_000 * 10_000) / uint256(ltv);
+        uint256 defendMin = uint256(emergencyIcr) + 1;
+        uint256 defendMax = openIcr - 1_000;
+        if (defendMax > type(uint16).max) defendMax = type(uint16).max;
+        if (defendMin > defendMax) return; // not satisfiable
+        defendIcr = uint16(bound(uint256(defendIcr), defendMin, defendMax));
+        skimBps = uint16(bound(uint256(skimBps), 100, 5_000));
+        spendable = uint16(bound(uint256(spendable), 0, 10_000));
+
+        ICerminVault.VaultParams memory p = ICerminVault.VaultParams({
+            targetLTV: ltv,
+            defendICR: defendIcr,
+            emergencyICR: emergencyIcr,
+            skimThresholdBps: skimBps,
+            spendableShare: spendable
+        });
+
+        address user = makeAddr(string(abi.encodePacked("fuzz_", ltv)));
+        vm.deal(user, 5 ether);
+        vm.prank(user);
+        // Use enough BTC so debt clears the 2000 MUSD floor at any allowed LTV.
+        factory.createVault{value: 1 ether}(p, 0, address(0), address(0));
+    }
 }
