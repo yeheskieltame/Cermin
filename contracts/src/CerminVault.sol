@@ -11,9 +11,8 @@ import {IPriceFeed} from "./interfaces/mezo/IPriceFeed.sol";
 import {ISavingsVault} from "./interfaces/mezo/ISavingsVault.sol";
 
 /// @title CerminVault — per-user wrapper around a single Mezo trove
-/// @notice Deployed once, then cloned per user via EIP-1167. Holds one trove plus a
-///         spendable MUSD bucket and an sMUSD position. Owner-only management actions
-///         (deposit / withdraw / close) and permissionless automation (skim / defend).
+/// @notice Deployed once, cloned per user via EIP-1167. Holds one trove plus a
+///         spendable MUSD bucket and an sMUSD position.
 contract CerminVault is ICerminVault {
     using SafeERC20 for IERC20;
 
@@ -21,10 +20,9 @@ contract CerminVault is ICerminVault {
     uint256 private constant ICR_PRECISION = 1e18;
     uint256 private constant PRICE_PRECISION = 1e18;
     uint256 private constant MIN_MUSD_DEBT = 2_000e18;
-    uint256 private constant DEFEND_OVERSHOOT_BPS = 2_000; // emergency repay overshoots by 20%
+    uint256 private constant GAS_COMP = 200e18;
+    uint256 private constant DEFEND_OVERSHOOT_BPS = 2_000;
 
-    /// @dev Mezo network singletons. Set once on the implementation; clones read the
-    ///      same bytecode so each clone sees the same addresses.
     address public immutable BORROWER_OPS;
     address public immutable TROVE_MANAGER;
     address public immutable PRICE_FEED;
@@ -68,19 +66,12 @@ contract CerminVault is ICerminVault {
         PRICE_FEED = priceFeed_;
         MUSD = musd_;
         SAVINGS_VAULT = savingsVault_;
-
-        // Lock the implementation: neither initialize() nor open() may run on
-        // the impl itself. Clones inherit code but not state, so they start at
-        // _initialized = false / _opened = false.
+        // Lock the implementation: clones inherit code, not state.
         _initialized = true;
         _opened = true;
     }
 
     receive() external payable {}
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Lifecycle
-    // ─────────────────────────────────────────────────────────────────────────
 
     /// @inheritdoc ICerminVault
     function initialize(address owner_, VaultParams calldata params_) external override {
@@ -108,11 +99,7 @@ contract CerminVault is ICerminVault {
         if (borrowAmount < MIN_MUSD_DEBT) revert MinDebtNotMet();
         if (maxBorrow != 0 && borrowAmount > maxBorrow) revert BorrowExceedsCap();
 
-        IBorrowerOperations(BORROWER_OPS).openTrove{value: msg.value}(
-            borrowAmount,
-            upperHint,
-            lowerHint
-        );
+        IBorrowerOperations(BORROWER_OPS).openTrove{value: msg.value}(borrowAmount, upperHint, lowerHint);
 
         _allocateBorrowed(borrowAmount);
         _state.lastSkimPrice = price;
@@ -122,15 +109,7 @@ contract CerminVault is ICerminVault {
     }
 
     /// @inheritdoc ICerminVault
-    function close()
-        external
-        override
-        whenInitialized
-        onlyOwner
-        nonReentrant
-    {
-        // Pull everything out of the savings vault, then settle the trove.
-        // Claim any pending yield first, then withdraw the 1:1 share principal.
+    function close() external override whenInitialized onlyOwner nonReentrant {
         ISavingsVault(SAVINGS_VAULT).claimYield();
         uint256 shares = _state.smusdShares;
         if (shares > 0) {
@@ -138,21 +117,25 @@ contract CerminVault is ICerminVault {
             ISavingsVault(SAVINGS_VAULT).withdraw(shares);
         }
 
-        // Mezo enforces a 2,000 MUSD minimum debt, so an active trove always has
-        // debt > 0. closeTrove burns exactly the trove's debt from the caller and
-        // returns all BTC collateral.
+        // Mezo's closeTrove burns (debt − GAS_COMP) from the caller and burns
+        // the gas-pool's GAS_COMP separately. The borrow fee (~0.1%) paid to
+        // PCV at open is part of debt, so we cover it by pulling from the
+        // owner — they must hold and approve enough MUSD before calling close.
         uint256 debt = ITroveManager(TROVE_MANAGER).getTroveDebt(address(this));
+        uint256 toBurn = debt - GAS_COMP;
         uint256 musdBalance = IERC20(MUSD).balanceOf(address(this));
-        if (musdBalance < debt) revert InsufficientFundsToClose();
+        if (musdBalance < toBurn) {
+            uint256 shortfall;
+            unchecked { shortfall = toBurn - musdBalance; }
+            IERC20(MUSD).safeTransferFrom(_owner, address(this), shortfall);
+        }
 
         _state.spendableMusd = 0;
-        IERC20(MUSD).forceApprove(BORROWER_OPS, debt);
+        IERC20(MUSD).forceApprove(BORROWER_OPS, toBurn);
         IBorrowerOperations(BORROWER_OPS).closeTrove();
 
         uint256 musdRemainder = IERC20(MUSD).balanceOf(address(this));
-        if (musdRemainder > 0) {
-            IERC20(MUSD).safeTransfer(_owner, musdRemainder);
-        }
+        if (musdRemainder > 0) IERC20(MUSD).safeTransfer(_owner, musdRemainder);
 
         uint256 btcBalance = address(this).balance;
         if (btcBalance > 0) {
@@ -162,10 +145,6 @@ contract CerminVault is ICerminVault {
 
         emit Closed(btcBalance, musdRemainder);
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Owner actions
-    // ─────────────────────────────────────────────────────────────────────────
 
     /// @inheritdoc ICerminVault
     function deposit(address upperHint, address lowerHint)
@@ -190,14 +169,10 @@ contract CerminVault is ICerminVault {
         nonReentrant
     {
         if (amount > _state.spendableMusd) revert InsufficientSpendable();
-        _state.spendableMusd -= amount;
+        unchecked { _state.spendableMusd -= amount; }
         IERC20(MUSD).safeTransfer(recipient, amount);
         emit SpendableWithdrawn(recipient, amount);
     }
-
-    // ─────────────────────────────────────────────────────────────────────────
-    // Permissionless automation
-    // ─────────────────────────────────────────────────────────────────────────
 
     /// @inheritdoc ICerminVault
     function skim(address upperHint, address lowerHint)
@@ -209,20 +184,19 @@ contract CerminVault is ICerminVault {
         uint256 price = IPriceFeed(PRICE_FEED).fetchPrice();
         uint256 last = _state.lastSkimPrice;
         if (last == 0 || price <= last) revert PriceMoveBelowThreshold();
-        uint256 priceMoveBps = ((price - last) * BASIS_POINTS) / last;
+
+        uint256 priceMoveBps;
+        unchecked { priceMoveBps = ((price - last) * BASIS_POINTS) / last; }
         if (priceMoveBps < _params.skimThresholdBps) revert PriceMoveBelowThreshold();
 
         uint256 debt = ITroveManager(TROVE_MANAGER).getTroveDebt(address(this));
         uint256 coll = ITroveManager(TROVE_MANAGER).getTroveColl(address(this));
         uint256 maxBorrow = (coll * price * _params.targetLTV) / (PRICE_PRECISION * BASIS_POINTS);
         if (maxBorrow <= debt) revert NoSkimCapacity();
-        uint256 newCapacity = maxBorrow - debt;
 
-        IBorrowerOperations(BORROWER_OPS).withdrawMUSD(
-            newCapacity,
-            upperHint,
-            lowerHint
-        );
+        uint256 newCapacity;
+        unchecked { newCapacity = maxBorrow - debt; }
+        IBorrowerOperations(BORROWER_OPS).withdrawMUSD(newCapacity, upperHint, lowerHint);
 
         (uint256 toSpendable, uint256 toVault) = _allocateBorrowed(newCapacity);
         _state.lastSkimPrice = price;
@@ -248,36 +222,32 @@ contract CerminVault is ICerminVault {
         uint256 targetICR = icrBefore < _params.emergencyICR
             ? uint256(_params.defendICR) + DEFEND_OVERSHOOT_BPS
             : uint256(_params.defendICR);
-
         uint256 targetDebt = (coll * price * BASIS_POINTS) / (targetICR * PRICE_PRECISION);
         uint256 needRepay = debt > targetDebt ? debt - targetDebt : 0;
         if (needRepay == 0) revert ICRAboveDefend();
 
-        // Harvest any pending yield up-front and reclassify it as spendable.
-        // This keeps the post-op invariant `balanceOf(this) == spendableMusd`
-        // intact and means the principal-side accounting is pure 1:1 sMUSD.
+        // Harvest pending yield; reclassify into spendable so principal-side
+        // accounting stays pure 1:1 sMUSD.
         uint256 yieldClaimed = ISavingsVault(SAVINGS_VAULT).claimYield();
         if (yieldClaimed > 0) _state.spendableMusd += yieldClaimed;
 
-        // Drain principal first; spendable is the fallback.
         uint256 principal = _state.smusdShares;
         uint256 fromVault = needRepay <= principal ? needRepay : principal;
-        uint256 fromSpendable = needRepay - fromVault;
+        uint256 fromSpendable;
+        unchecked { fromSpendable = needRepay - fromVault; }
         if (fromSpendable > _state.spendableMusd) {
-            // Cap repay at available funds rather than reverting outright.
             fromSpendable = _state.spendableMusd;
             needRepay = fromVault + fromSpendable;
         }
+        if (needRepay == 0) revert ICRAboveDefend();
 
         if (fromSpendable > 0) {
-            _state.spendableMusd -= fromSpendable;
+            unchecked { _state.spendableMusd -= fromSpendable; }
         }
         if (fromVault > 0) {
-            _state.smusdShares = principal - fromVault;
+            unchecked { _state.smusdShares = principal - fromVault; }
             ISavingsVault(SAVINGS_VAULT).withdraw(fromVault);
         }
-
-        if (needRepay == 0) revert ICRAboveDefend();
 
         IERC20(MUSD).forceApprove(BORROWER_OPS, needRepay);
         IBorrowerOperations(BORROWER_OPS).repayMUSD(needRepay, upperHint, lowerHint);
@@ -288,14 +258,9 @@ contract CerminVault is ICerminVault {
         emit Defended(icrBefore, icrAfter, needRepay, fromVault, fromSpendable);
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Views
-    // ─────────────────────────────────────────────────────────────────────────
-
-    /// @notice ICR computed at the last-cached price (open / skim / defend
-    ///         each update `lastSeenPrice`). Returns 0 before open. Pure
-    ///         view — does not touch the Mezo oracle precompile (which
-    ///         reverts under STATICCALL).
+    /// @notice ICR at the last cached price. Open / skim / defend each refresh
+    ///         the cache. Returns 0 before open. Mezo's oracle reverts under
+    ///         STATICCALL so a view function cannot read it live.
     function getICR() external view override returns (uint256) {
         uint256 price = _state.lastSeenPrice;
         if (price == 0) return 0;
@@ -312,7 +277,7 @@ contract CerminVault is ICerminVault {
 
     function getShadow() external view override returns (uint256 spendable, uint256 vaultValue) {
         spendable = _state.spendableMusd;
-        vaultValue = _vaultValue();
+        vaultValue = _state.smusdShares + ISavingsVault(SAVINGS_VAULT).claimableYield(address(this));
     }
 
     function params() external view override returns (VaultParams memory) {
@@ -327,27 +292,17 @@ contract CerminVault is ICerminVault {
         return _owner;
     }
 
-    // ─────────────────────────────────────────────────────────────────────────
-    // Internals
-    // ─────────────────────────────────────────────────────────────────────────
-
     function _allocateBorrowed(uint256 amount) private returns (uint256 toSpendable, uint256 toVault) {
-        toSpendable = (amount * _params.spendableShare) / BASIS_POINTS;
-        toVault = amount - toSpendable;
+        uint256 share = _params.spendableShare;
+        toSpendable = (amount * share) / BASIS_POINTS;
+        unchecked { toVault = amount - toSpendable; }
         _state.spendableMusd += toSpendable;
         if (toVault > 0) {
-            // MUSDSavingsRate mints sMUSD 1:1 with MUSD deposited. No return value;
-            // shares minted are exactly `toVault`.
+            // MUSDSavingsRate mints sMUSD 1:1 — no return value, shares = toVault.
             IERC20(MUSD).forceApprove(SAVINGS_VAULT, toVault);
             _state.smusdShares += toVault;
             ISavingsVault(SAVINGS_VAULT).deposit(toVault);
         }
-    }
-
-    /// @dev Total MUSD the vault holds inside the savings position: principal
-    ///      (= sMUSD balance, since 1:1) plus pending yield not yet harvested.
-    function _vaultValue() private view returns (uint256) {
-        return _state.smusdShares + ISavingsVault(SAVINGS_VAULT).claimableYield(address(this));
     }
 
     function _icrBps(uint256 price) private view returns (uint256) {
@@ -361,8 +316,7 @@ contract CerminVault is ICerminVault {
         if (p.defendICR <= p.emergencyICR) revert InvalidParams();
         if (p.skimThresholdBps < 100 || p.skimThresholdBps > 5_000) revert InvalidParams();
         if (p.spendableShare > 10_000) revert InvalidParams();
-        // The trove opens at ICR = BASIS_POINTS² / targetLTV. defendICR must sit at
-        // least 1000 bps below that, otherwise defense would fire immediately on open.
+        // Open-time ICR = BPS² / targetLTV. defendICR must sit at least 1000 bps below.
         uint256 openICR = (BASIS_POINTS * BASIS_POINTS) / p.targetLTV;
         if (uint256(p.defendICR) + 1_000 > openICR) revert InvalidParams();
     }
