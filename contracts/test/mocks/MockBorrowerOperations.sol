@@ -5,8 +5,9 @@ import {IBorrowerOperations} from "../../src/interfaces/mezo/IBorrowerOperations
 import {MockMUSD} from "./MockMUSD.sol";
 import {MockTroveManager} from "./MockTroveManager.sol";
 
-/// @notice Mints/burns MUSD against a coordinated MockTroveManager so tests model
-///         a single trove without manual bookkeeping.
+/// @notice 1:1 mirror of Mezo BorrowerOperations signatures (no Liquity v1
+///         _maxFeePercentage param). Maintains a coordinated MockTroveManager
+///         so tests don't need to keep two copies of state in sync.
 contract MockBorrowerOperations is IBorrowerOperations {
     MockMUSD public musd;
     MockTroveManager public troveManager;
@@ -16,25 +17,24 @@ contract MockBorrowerOperations is IBorrowerOperations {
         troveManager = MockTroveManager(troveManager_);
     }
 
-    function openTrove(uint256, uint256 musdAmount, address, address) external payable override {
-        troveManager.adjustTrove(msg.sender, int256(msg.value), int256(musdAmount));
-        musd.mint(msg.sender, musdAmount);
+    function openTrove(uint256 debtAmount, address, address) external payable override {
+        troveManager.adjustTrove(msg.sender, int256(msg.value), int256(debtAmount));
+        musd.mint(msg.sender, debtAmount);
     }
 
     function adjustTrove(
-        uint256,
         uint256 collWithdrawal,
-        uint256 musdChange,
+        uint256 debtChange,
         bool isDebtIncrease,
         address,
         address
     ) external payable override {
         int256 collDelta = msg.value > 0 ? int256(msg.value) : -int256(collWithdrawal);
-        int256 debtDelta = isDebtIncrease ? int256(musdChange) : -int256(musdChange);
+        int256 debtDelta = isDebtIncrease ? int256(debtChange) : -int256(debtChange);
         troveManager.adjustTrove(msg.sender, collDelta, debtDelta);
 
-        if (isDebtIncrease) musd.mint(msg.sender, musdChange);
-        else if (musdChange > 0) musd.burn(msg.sender, musdChange);
+        if (isDebtIncrease) musd.mint(msg.sender, debtChange);
+        else if (debtChange > 0) musd.burn(msg.sender, debtChange);
 
         if (collWithdrawal > 0) {
             (bool ok,) = msg.sender.call{value: collWithdrawal}("");
@@ -48,7 +48,7 @@ contract MockBorrowerOperations is IBorrowerOperations {
         musd.burn(msg.sender, amount);
     }
 
-    function withdrawMUSD(uint256, uint256 amount, address, address) external override {
+    function withdrawMUSD(uint256 amount, address, address) external override {
         troveManager.adjustTrove(msg.sender, int256(0), int256(amount));
         musd.mint(msg.sender, amount);
     }
