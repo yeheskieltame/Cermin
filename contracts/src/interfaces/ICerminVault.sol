@@ -46,7 +46,7 @@ interface ICerminVault {
     function initialize(address owner_, VaultParams calldata params_) external;
 
     function open(uint256 maxBorrow, address upperHint, address lowerHint) external payable;
-    function close(address upperHint, address lowerHint) external;
+    function close() external;
 
     function deposit(address upperHint, address lowerHint) external payable;
     function withdrawSpendable(uint256 amount, address recipient) external;
