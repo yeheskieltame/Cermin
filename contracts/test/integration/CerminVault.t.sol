@@ -171,6 +171,26 @@ contract CerminVaultTest is Test {
         vault.defend(address(0), address(0));
     }
 
+    function test_Defend_DrainsSpendableWhenVaultInsufficient() public {
+        vault = _open(ONE_BTC);
+        // BTC → $35k → ICR = 70%. With emergency overshoot (target ICR 160%):
+        //   targetDebt = 1e18 * 35000e18 * 10000 / (16000 * 1e18) = 21,875 MUSD
+        //   needRepay  = 50,000 - 21,875 = 28,125 MUSD
+        // Vault holds 25k of sMUSD, spendable holds 25k → vault drains first,
+        // then 3,125 comes out of spendable.
+        priceFeed.setPrice(35_000e18);
+
+        uint256 spendableBefore = vault.state().spendableMusd;
+        uint256 sharesBefore = vault.state().smusdShares;
+        assertGt(sharesBefore, 0, "preconditions");
+
+        vm.prank(keeper);
+        vault.defend(address(0), address(0));
+
+        assertEq(vault.state().smusdShares, 0, "vault drained first");
+        assertLt(vault.state().spendableMusd, spendableBefore, "spendable also used");
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Withdraw / Close
     // ─────────────────────────────────────────────────────────────────────────
