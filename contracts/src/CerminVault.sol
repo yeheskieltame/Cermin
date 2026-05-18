@@ -131,10 +131,12 @@ contract CerminVault is ICerminVault {
         nonReentrant
     {
         // Pull everything out of the savings vault, then settle the trove.
+        // Claim any pending yield first, then withdraw the 1:1 share principal.
+        ISavingsVault(SAVINGS_VAULT).claimYield();
         uint256 shares = _state.smusdShares;
         if (shares > 0) {
             _state.smusdShares = 0;
-            ISavingsVault(SAVINGS_VAULT).redeem(shares, address(this), address(this));
+            ISavingsVault(SAVINGS_VAULT).withdraw(shares);
         }
 
         // Mezo enforces a 2,000 MUSD minimum debt, so an active trove always has
@@ -252,9 +254,15 @@ contract CerminVault is ICerminVault {
         uint256 needRepay = debt > targetDebt ? debt - targetDebt : 0;
         if (needRepay == 0) revert ICRAboveDefend();
 
-        // Drain savings vault first; spendable is the fallback.
-        uint256 vaultValue = ISavingsVault(SAVINGS_VAULT).convertToAssets(_state.smusdShares);
-        uint256 fromVault = needRepay <= vaultValue ? needRepay : vaultValue;
+        // Harvest any pending yield up-front and reclassify it as spendable.
+        // This keeps the post-op invariant `balanceOf(this) == spendableMusd`
+        // intact and means the principal-side accounting is pure 1:1 sMUSD.
+        uint256 yieldClaimed = ISavingsVault(SAVINGS_VAULT).claimYield();
+        if (yieldClaimed > 0) _state.spendableMusd += yieldClaimed;
+
+        // Drain principal first; spendable is the fallback.
+        uint256 principal = _state.smusdShares;
+        uint256 fromVault = needRepay <= principal ? needRepay : principal;
         uint256 fromSpendable = needRepay - fromVault;
         if (fromSpendable > _state.spendableMusd) {
             // Cap repay at available funds rather than reverting outright.
@@ -266,22 +274,10 @@ contract CerminVault is ICerminVault {
             _state.spendableMusd -= fromSpendable;
         }
         if (fromVault > 0) {
-            uint256 shares = _state.smusdShares;
-            // ERC4626 withdraw rounds shares UP, while convertToAssets rounds
-            // DOWN. When draining the full vault, ceil(fromVault → shares) can
-            // exceed our actual share balance and revert. Drain by share count
-            // in that case; use exact-assets withdraw for partial unwinds.
-            if (fromVault >= vaultValue) {
-                _state.smusdShares = 0;
-                ISavingsVault(SAVINGS_VAULT).redeem(shares, address(this), address(this));
-            } else {
-                uint256 sharesBurned = ISavingsVault(SAVINGS_VAULT).withdraw(fromVault, address(this), address(this));
-                _state.smusdShares -= sharesBurned;
-            }
+            _state.smusdShares = principal - fromVault;
+            ISavingsVault(SAVINGS_VAULT).withdraw(fromVault);
         }
 
-        uint256 musdBalance = IERC20(MUSD).balanceOf(address(this));
-        if (musdBalance < needRepay) needRepay = musdBalance;
         if (needRepay == 0) revert ICRAboveDefend();
 
         IERC20(MUSD).forceApprove(BORROWER_OPS, needRepay);
@@ -310,7 +306,7 @@ contract CerminVault is ICerminVault {
 
     function getShadow() external view override returns (uint256 spendable, uint256 vaultValue) {
         spendable = _state.spendableMusd;
-        vaultValue = ISavingsVault(SAVINGS_VAULT).convertToAssets(_state.smusdShares);
+        vaultValue = _vaultValue();
     }
 
     function params() external view override returns (VaultParams memory) {
@@ -334,9 +330,18 @@ contract CerminVault is ICerminVault {
         toVault = amount - toSpendable;
         _state.spendableMusd += toSpendable;
         if (toVault > 0) {
+            // MUSDSavingsRate mints sMUSD 1:1 with MUSD deposited. No return value;
+            // shares minted are exactly `toVault`.
             IERC20(MUSD).forceApprove(SAVINGS_VAULT, toVault);
-            _state.smusdShares += ISavingsVault(SAVINGS_VAULT).deposit(toVault, address(this));
+            _state.smusdShares += toVault;
+            ISavingsVault(SAVINGS_VAULT).deposit(toVault);
         }
+    }
+
+    /// @dev Total MUSD the vault holds inside the savings position: principal
+    ///      (= sMUSD balance, since 1:1) plus pending yield not yet harvested.
+    function _vaultValue() private view returns (uint256) {
+        return _state.smusdShares + ISavingsVault(SAVINGS_VAULT).claimableYield(address(this));
     }
 
     function _icrBps(uint256 price) private view returns (uint256) {
