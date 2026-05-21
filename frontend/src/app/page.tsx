@@ -40,7 +40,7 @@ export default function HomePage() {
 
   return (
     <div className="bg-app min-h-screen text-ink">
-      <Topbar launchHref={launchHref} onLaunch={onLaunch} />
+      <Topbar launchHref={launchHref} />
       <Hero launchHref={launchHref} onLaunch={onLaunch} />
       <TrustStrip />
       <HowItWorks />
@@ -53,13 +53,7 @@ export default function HomePage() {
   );
 }
 
-function Topbar({
-  launchHref,
-  onLaunch,
-}: {
-  launchHref: string | null;
-  onLaunch?: () => void;
-}) {
+function Topbar({ launchHref }: { launchHref: string | null }) {
   return (
     <header className="sticky top-0 z-40 glass border-b border-line/60">
       <div className="mx-auto max-w-6xl px-5 sm:px-8 h-16 flex items-center justify-between pad-safe-top">
