@@ -1,0 +1,86 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: #FAF6F0;
+  --foreground: #1F1B17;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body {
+  background: #FAF6F0;
+  color: #1F1B17;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  color-scheme: light;
+  scroll-behavior: smooth;
+}
+
+/* Editorial display headings in serif; body stays sans. */
+h1, h2 {
+  font-family: var(--font-fraunces), Georgia, Cambria, serif;
+  letter-spacing: -0.01em;
+}
+
+::selection { background: rgba(199, 122, 58, 0.22); color: #1F1B17; }
+
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(92, 84, 72, 0.20); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(92, 84, 72, 0.35); }
+
+/* RainbowKit warm light override */
+[data-rk] {
+  --rk-radii-modal: 20px;
+  --rk-radii-actionButton: 999px;
+  --rk-radii-connectButton: 999px;
+  --rk-colors-accentColor: #1F1B17;
+  --rk-colors-accentColorForeground: #FDFBF7;
+  --rk-colors-modalBackground: #FDFBF7;
+  --rk-colors-modalBorder: #EDE4D5;
+  --rk-colors-modalText: #1F1B17;
+  --rk-colors-modalTextSecondary: #5C5448;
+  --rk-colors-profileAction: #F5EFE5;
+  --rk-colors-profileActionHover: #EDE4D5;
+}
+
+@layer utilities {
+  .text-balance { text-wrap: balance; }
+  .text-pretty { text-wrap: pretty; }
+
+  /* Flat cream paper — no gradients. */
+  .bg-app {
+    background-color: #FAF6F0;
+  }
+
+  .bg-grid-soft {
+    background-image:
+      linear-gradient(to right, rgba(92, 84, 72, 0.05) 1px, transparent 1px),
+      linear-gradient(to bottom, rgba(92, 84, 72, 0.05) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .glass {
+    background: rgba(250, 246, 240, 0.72);
+    backdrop-filter: blur(18px) saturate(120%);
+    -webkit-backdrop-filter: blur(18px) saturate(120%);
+  }
+
+  .pad-safe-bottom {
+    padding-bottom: max(env(safe-area-inset-bottom), 0px);
+  }
+  .pad-safe-top {
+    padding-top: max(env(safe-area-inset-top), 0px);
+  }
+
+  .scrollbar-hide::-webkit-scrollbar { display: none; }
+  .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+}
