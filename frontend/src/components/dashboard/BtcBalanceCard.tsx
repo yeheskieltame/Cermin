@@ -1,0 +1,42 @@
+import { Card } from "@/components/ui/Card";
+import { Badge } from "@/components/ui/Badge";
+import { formatUsd } from "@/lib/utils";
+import { ShieldCheck, Bitcoin } from "lucide-react";
+
+interface BtcBalanceCardProps {
+  collateral: bigint;
+  btcPriceUsd: number;
+}
+
+export function BtcBalanceCard({ collateral, btcPriceUsd }: BtcBalanceCardProps) {
+  const btcAmount = Number(collateral) / 1e18;
+  const usdValue = btcAmount * btcPriceUsd;
+
+  return (
+    <Card glow className="relative overflow-hidden">
+      <div className="flex items-start justify-between mb-6">
+        <div>
+          <p className="text-muted text-sm mb-0.5">Bitcoin Collateral</p>
+          <p className="text-muted-2 text-xs">Locked · Never sold</p>
+        </div>
+        <Badge variant="success">
+          <ShieldCheck className="w-3 h-3 mr-1" />
+          Protected
+        </Badge>
+      </div>
+      <div className="flex items-end gap-3">
+        <Bitcoin className="w-8 h-8 text-amber-500/70 mb-1" />
+        <div>
+          <p className="text-4xl font-bold text-ink tabular-nums leading-none">
+            {btcAmount.toFixed(6)}
+          </p>
+          <p className="text-lg font-medium text-muted-2 mt-1">BTC</p>
+        </div>
+      </div>
+      <p className="text-muted text-sm mt-4 border-t border-line pt-4">
+        {formatUsd(usdValue)}{" "}
+        <span className="text-muted-2 text-xs">@ {formatUsd(btcPriceUsd, 0)}</span>
+      </p>
+    </Card>
+  );
+}
