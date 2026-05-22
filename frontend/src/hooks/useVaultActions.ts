@@ -51,6 +51,14 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
     error: depositError,
   } = useWriteContract();
 
+  const {
+    writeContract: writeDefend,
+    data: defendHash,
+    isPending: isDefendPending,
+    reset: resetDefend,
+    error: defendError,
+  } = useWriteContract();
+
   const { isLoading: isWithdrawConfirming, isSuccess: withdrawSuccess } =
     useWaitForTransactionReceipt({ hash: withdrawHash });
 
@@ -62,6 +70,9 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
 
   const { isLoading: isDepositConfirming, isSuccess: depositSuccess } =
     useWaitForTransactionReceipt({ hash: depositHash });
+
+  const { isLoading: isDefendConfirming, isSuccess: defendSuccess } =
+    useWaitForTransactionReceipt({ hash: defendHash });
 
   // Once the MUSD approve confirms, auto-fire the actual close.
   useEffect(() => {
@@ -77,12 +88,12 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
   }, [closePhase, approveSuccess, vaultAddress, writeClose]);
 
   useEffect(() => {
-    if (withdrawSuccess || closeSuccess || depositSuccess) {
+    if (withdrawSuccess || closeSuccess || depositSuccess || defendSuccess) {
       queryClient.invalidateQueries({ queryKey: ["readContract"] });
       queryClient.invalidateQueries({ queryKey: ["readContracts"] });
     }
     if (closeSuccess) setClosePhase("done");
-  }, [withdrawSuccess, closeSuccess, depositSuccess, queryClient]);
+  }, [withdrawSuccess, closeSuccess, depositSuccess, defendSuccess, queryClient]);
 
   const withdrawSpendable = useCallback(
     (amount: bigint, recipient: `0x${string}`) => {
@@ -112,6 +123,19 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
     },
     [vaultAddress, writeDeposit, resetDeposit],
   );
+
+  const defend = useCallback(() => {
+    if (!vaultAddress) return;
+    resetDefend();
+    // Permissionless: anyone can repay debt to lift ICR. Reverts with
+    // ICRAboveDefend if the vault is already healthy. Hints are 0x0 (MVP).
+    writeDefend({
+      address: vaultAddress,
+      abi: CERMIN_VAULT_ABI,
+      functionName: "defend",
+      args: [zeroAddress, zeroAddress],
+    });
+  }, [vaultAddress, writeDefend, resetDefend]);
 
   const closeVault = useCallback(
     ({ shortfall, currentAllowance }: CloseArgs) => {
@@ -163,18 +187,22 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
   return {
     withdrawSpendable,
     addCollateral,
+    defend,
     closeVault,
     resetCloseFlow,
     isWithdrawLoading: isWithdrawPending || isWithdrawConfirming,
     isAddCollateralLoading: isDepositPending || isDepositConfirming,
+    isDefendLoading: isDefendPending || isDefendConfirming,
     isCloseLoading,
     closePhase,
     withdrawHash,
     approveHash,
     closeHash,
     depositHash,
+    defendHash,
     withdrawError,
     addCollateralError: depositError,
+    defendError,
     closeError,
     resetWithdraw,
   };

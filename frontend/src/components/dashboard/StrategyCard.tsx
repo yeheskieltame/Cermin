@@ -1,15 +1,25 @@
+"use client";
+
 import { Card } from "@/components/ui/Card";
+import { Button } from "@/components/ui/Button";
 import { ICRGauge } from "@/components/dashboard/ICRGauge";
 import { icrToTextClass } from "@/lib/utils";
 import type { VaultParamsData } from "@/hooks/useVault";
-import { Settings } from "lucide-react";
+import { Settings, ShieldAlert } from "lucide-react";
 
 interface StrategyCardProps {
   params: VaultParamsData;
   icr: bigint;
+  onDefend?: () => void;
+  isDefendLoading?: boolean;
 }
 
-export function StrategyCard({ params, icr }: StrategyCardProps) {
+export function StrategyCard({
+  params,
+  icr,
+  onDefend,
+  isDefendLoading,
+}: StrategyCardProps) {
   const targetLtv = params.targetLTV / 100;
   const spendable = params.spendableShare / 100;
   const vaultPct = 100 - spendable;
@@ -19,6 +29,10 @@ export function StrategyCard({ params, icr }: StrategyCardProps) {
 
   const icrBps = Number(icr);
   const icrColor = icrToTextClass(icrBps);
+  // defend() only succeeds while ICR sits below the defend threshold; above it
+  // the call reverts (ICRAboveDefend). icr is the cached value, so this is a
+  // best-effort signal — the keeper reads the live price.
+  const needsDefense = icrBps > 0 && icrBps < params.defendICR;
 
   return (
     <Card className="relative overflow-hidden">
@@ -74,6 +88,48 @@ export function StrategyCard({ params, icr }: StrategyCardProps) {
           Skim threshold: BTC needs +{skim.toFixed(1)}% vs last skim
         </p>
       </div>
+
+      {onDefend && (
+        <div className="mt-4 border-t border-line pt-4">
+          {needsDefense ? (
+            <>
+              <p className="text-xs text-warning mb-2 flex items-start gap-1.5">
+                <ShieldAlert className="w-3.5 h-3.5 mt-px flex-shrink-0" />
+                ICR is below your {defendIcr.toFixed(0)}% defend line. Repay debt
+                from your Shadow to lift it back up.
+              </p>
+              <Button
+                variant="primary"
+                size="sm"
+                className="w-full"
+                onClick={onDefend}
+                loading={isDefendLoading}
+                disabled={isDefendLoading}
+              >
+                Defend now
+              </Button>
+            </>
+          ) : (
+            <>
+              <p className="text-[11px] text-muted-2 mb-2">
+                Healthy. The keeper auto-defends if ICR drops below{" "}
+                {defendIcr.toFixed(0)}% — you can also trigger it manually
+                (does nothing while healthy).
+              </p>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="w-full"
+                onClick={onDefend}
+                loading={isDefendLoading}
+                disabled={isDefendLoading}
+              >
+                Defend now
+              </Button>
+            </>
+          )}
+        </div>
+      )}
     </Card>
   );
 }

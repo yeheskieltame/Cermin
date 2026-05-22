@@ -115,6 +115,9 @@ export default function DashboardPage() {
     addCollateral,
     isAddCollateralLoading,
     addCollateralError,
+    defend,
+    isDefendLoading,
+    defendError,
     closeVault,
     closePhase,
     isCloseLoading,
@@ -185,6 +188,17 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {defendError && (
+        <div className="mb-4 rounded-2xl bg-danger/8 border border-danger/25 px-4 py-3">
+          <p className="text-xs text-danger">
+            Defend failed: {formatTxError(defendError, 200)}
+          </p>
+          <p className="text-[11px] text-muted-2 mt-1">
+            If ICR is already above the defend threshold, no defense is needed.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
         <BtcBalanceCard
           collateral={collValue}
@@ -198,7 +212,12 @@ export default function DashboardPage() {
           onWithdraw={withdrawSpendable}
           isWithdrawLoading={isWithdrawLoading}
         />
-        <StrategyCard params={params} icr={icr ?? 0n} />
+        <StrategyCard
+          params={params}
+          icr={icr ?? 0n}
+          onDefend={defend}
+          isDefendLoading={isDefendLoading}
+        />
       </div>
 
       <div className="grid grid-cols-1 gap-4">
