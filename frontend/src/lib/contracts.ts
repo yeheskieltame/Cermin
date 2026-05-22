@@ -21,6 +21,7 @@ export const VAULT_PARAMS_TUPLE = [
 
 const VAULT_STATE_TUPLE = [
   { name: "lastSkimPrice", type: "uint256" },
+  { name: "lastSeenPrice", type: "uint256" },
   { name: "spendableMusd", type: "uint256" },
   { name: "smusdShares", type: "uint256" },
   { name: "createdAt", type: "uint64" },
