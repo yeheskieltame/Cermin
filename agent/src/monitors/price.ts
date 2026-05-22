@@ -8,7 +8,7 @@ export async function fetchBTCPrice(client: PublicClient, config: Config): Promi
     client.readContract({
       address: config.MEZO_PRICE_FEED_ADDRESS,
       abi: PRICE_FEED_ABI,
-      functionName: 'lastGoodPrice',
+      functionName: 'fetchPrice',
     }),
   );
 }
