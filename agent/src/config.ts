@@ -7,7 +7,9 @@ const ConfigSchema = z.object({
   PRIVATE_KEY: z.string().regex(/^0x[0-9a-fA-F]{64}$/).transform(v => v as `0x${string}`),
   CERMIN_FACTORY_ADDRESS: Hex,
   MEZO_PRICE_FEED_ADDRESS: Hex,
-  MEZO_SORTED_TROVES_ADDRESS: Hex,
+  // Reserved for production hint generation; unused while computeHints() returns
+  // the 0x0 "no hint" pair, so it's optional to keep deploy config minimal.
+  MEZO_SORTED_TROVES_ADDRESS: Hex.optional(),
   POLL_INTERVAL_MS: z.coerce.number().default(600_000),
   DB_PATH: z.string().default('./data/cermin.db'),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
