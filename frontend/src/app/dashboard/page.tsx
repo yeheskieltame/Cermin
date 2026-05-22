@@ -112,6 +112,9 @@ export default function DashboardPage() {
     withdrawSpendable,
     isWithdrawLoading,
     withdrawError,
+    addCollateral,
+    isAddCollateralLoading,
+    addCollateralError,
     closeVault,
     closePhase,
     isCloseLoading,
@@ -174,8 +177,21 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {addCollateralError && (
+        <div className="mb-4 rounded-2xl bg-danger/8 border border-danger/25 px-4 py-3">
+          <p className="text-xs text-danger">
+            Add collateral failed: {formatTxError(addCollateralError, 200)}
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
-        <BtcBalanceCard collateral={collValue} btcPriceUsd={effectiveBtcPrice} />
+        <BtcBalanceCard
+          collateral={collValue}
+          btcPriceUsd={effectiveBtcPrice}
+          onAddCollateral={addCollateral}
+          isAddCollateralLoading={isAddCollateralLoading}
+        />
         <ShadowBalanceCard
           spendableMusd={spendable}
           vaultValue={vaultValue}
