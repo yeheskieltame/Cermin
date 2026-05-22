@@ -31,7 +31,7 @@ export async function fetchPriceAndVaults(
       client.readContract({
         address: config.MEZO_PRICE_FEED_ADDRESS,
         abi: PRICE_FEED_ABI,
-        functionName: 'lastGoodPrice',
+        functionName: 'fetchPrice',
       }),
     ),
     listVaults(client, config),

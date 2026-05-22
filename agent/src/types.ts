@@ -8,6 +8,7 @@ export interface VaultParams {
 
 export interface VaultState {
   lastSkimPrice: bigint;
+  lastSeenPrice: bigint;
   spendableMusd: bigint;
   smusdShares: bigint;
   createdAt: bigint;

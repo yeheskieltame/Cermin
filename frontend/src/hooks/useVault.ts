@@ -7,6 +7,7 @@ import { CERMIN_FACTORY_ABI, CERMIN_VAULT_ABI, CONTRACTS } from "@/lib/contracts
 
 export interface VaultStateData {
   lastSkimPrice: bigint;
+  lastSeenPrice: bigint;
   spendableMusd: bigint;
   smusdShares: bigint;
   createdAt: bigint;

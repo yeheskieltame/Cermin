@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { useQueryClient } from "@tanstack/react-query";
+import { zeroAddress } from "viem";
 import { CERMIN_VAULT_ABI, ERC20_ABI, CONTRACTS } from "@/lib/contracts";
 
 export type ClosePhase = "idle" | "approving" | "closing" | "done";
@@ -42,6 +43,14 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
     error: closeWriteError,
   } = useWriteContract();
 
+  const {
+    writeContract: writeDeposit,
+    data: depositHash,
+    isPending: isDepositPending,
+    reset: resetDeposit,
+    error: depositError,
+  } = useWriteContract();
+
   const { isLoading: isWithdrawConfirming, isSuccess: withdrawSuccess } =
     useWaitForTransactionReceipt({ hash: withdrawHash });
 
@@ -50,6 +59,9 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
 
   const { isLoading: isCloseConfirming, isSuccess: closeSuccess } =
     useWaitForTransactionReceipt({ hash: closeHash });
+
+  const { isLoading: isDepositConfirming, isSuccess: depositSuccess } =
+    useWaitForTransactionReceipt({ hash: depositHash });
 
   // Once the MUSD approve confirms, auto-fire the actual close.
   useEffect(() => {
@@ -65,12 +77,12 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
   }, [closePhase, approveSuccess, vaultAddress, writeClose]);
 
   useEffect(() => {
-    if (withdrawSuccess || closeSuccess) {
+    if (withdrawSuccess || closeSuccess || depositSuccess) {
       queryClient.invalidateQueries({ queryKey: ["readContract"] });
       queryClient.invalidateQueries({ queryKey: ["readContracts"] });
     }
     if (closeSuccess) setClosePhase("done");
-  }, [withdrawSuccess, closeSuccess, queryClient]);
+  }, [withdrawSuccess, closeSuccess, depositSuccess, queryClient]);
 
   const withdrawSpendable = useCallback(
     (amount: bigint, recipient: `0x${string}`) => {
@@ -83,6 +95,22 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
       });
     },
     [vaultAddress, writeWithdraw],
+  );
+
+  const addCollateral = useCallback(
+    (amountWei: bigint) => {
+      if (!vaultAddress || amountWei <= 0n) return;
+      resetDeposit();
+      // deposit() forwards BTC to Mezo's addColl. Hints are 0x0 (MVP, like open).
+      writeDeposit({
+        address: vaultAddress,
+        abi: CERMIN_VAULT_ABI,
+        functionName: "deposit",
+        args: [zeroAddress, zeroAddress],
+        value: amountWei,
+      });
+    },
+    [vaultAddress, writeDeposit, resetDeposit],
   );
 
   const closeVault = useCallback(
@@ -134,15 +162,19 @@ export function useVaultActions(vaultAddress: `0x${string}` | undefined) {
 
   return {
     withdrawSpendable,
+    addCollateral,
     closeVault,
     resetCloseFlow,
     isWithdrawLoading: isWithdrawPending || isWithdrawConfirming,
+    isAddCollateralLoading: isDepositPending || isDepositConfirming,
     isCloseLoading,
     closePhase,
     withdrawHash,
     approveHash,
     closeHash,
+    depositHash,
     withdrawError,
+    addCollateralError: depositError,
     closeError,
     resetWithdraw,
   };

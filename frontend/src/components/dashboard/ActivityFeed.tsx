@@ -8,7 +8,7 @@ import { Card } from "@/components/ui/Card";
 import { truncateAddress } from "@/lib/utils";
 import { Activity } from "lucide-react";
 
-type EventKind = "Skimmed" | "Defended" | "Withdrawn" | "Closed";
+type EventKind = "Skimmed" | "Defended" | "Withdrawn" | "Deposited" | "Closed";
 
 interface FeedEvent {
   type: EventKind;
@@ -27,6 +27,7 @@ const EVENTS = {
   Withdrawn: parseAbiItem(
     "event SpendableWithdrawn(address indexed recipient, uint256 amount)",
   ),
+  Deposited: parseAbiItem("event CollateralAdded(uint256 amount)"),
   Closed: parseAbiItem(
     "event Closed(uint256 btcReturned, uint256 musdRemainder)",
   ),
@@ -50,10 +51,11 @@ async function fetchActivity(
   const latest = await client.getBlockNumber();
   const fromBlock = latest > LOOKBACK_BLOCKS ? latest - LOOKBACK_BLOCKS : 0n;
 
-  const [skims, defenses, withdrawals, closes] = await Promise.all([
+  const [skims, defenses, withdrawals, deposits, closes] = await Promise.all([
     client.getLogs({ address: vaultAddress, event: EVENTS.Skimmed, fromBlock }),
     client.getLogs({ address: vaultAddress, event: EVENTS.Defended, fromBlock }),
     client.getLogs({ address: vaultAddress, event: EVENTS.Withdrawn, fromBlock }),
+    client.getLogs({ address: vaultAddress, event: EVENTS.Deposited, fromBlock }),
     client.getLogs({ address: vaultAddress, event: EVENTS.Closed, fromBlock }),
   ]);
 
@@ -90,6 +92,15 @@ async function fetchActivity(
       label: `Withdraw ${formatMusd(amt)} MUSD → ${truncateAddress(to)}`,
     });
   }
+  for (const log of deposits) {
+    const amt = (log.args?.amount as bigint) ?? 0n;
+    parsed.push({
+      type: "Deposited",
+      txHash: log.transactionHash ?? "",
+      blockNumber: log.blockNumber ?? 0n,
+      label: `Added ${(Number(amt) / 1e18).toFixed(6)} BTC collateral`,
+    });
+  }
   for (const log of closes) {
     const btc = (log.args?.btcReturned as bigint) ?? 0n;
     parsed.push({
@@ -121,6 +132,7 @@ export function ActivityFeed({ vaultAddress }: { vaultAddress: `0x${string}` }) 
     Skimmed: "bg-success",
     Defended: "bg-warning",
     Withdrawn: "bg-info",
+    Deposited: "bg-amber-500",
     Closed: "bg-muted-2",
   };
 
@@ -128,6 +140,7 @@ export function ActivityFeed({ vaultAddress }: { vaultAddress: `0x${string}` }) 
     Skimmed: "text-success",
     Defended: "text-warning",
     Withdrawn: "text-info",
+    Deposited: "text-amber-700",
     Closed: "text-muted",
   };
 
