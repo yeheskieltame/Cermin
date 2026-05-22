@@ -116,6 +116,16 @@ export const CERMIN_VAULT_ABI = [
   },
   {
     type: "function",
+    name: "defend",
+    inputs: [
+      { name: "upperHint", type: "address" },
+      { name: "lowerHint", type: "address" },
+    ],
+    outputs: [],
+    stateMutability: "nonpayable",
+  },
+  {
+    type: "function",
     name: "close",
     inputs: [],
     outputs: [],
