@@ -2,9 +2,11 @@ import { type Hash, type PublicClient, type WalletClient, maxUint256 } from 'vie
 import { SAVINGS_VAULT_ABI } from '../abis/SavingsVault.js';
 import { ERC20_ABI } from '../abis/ERC20.js';
 import { withRetry } from '../rpc/retry.js';
+import { enqueueWrite } from '../rpc/txQueue.js';
 
 const SECONDS_PER_YEAR = 31_536_000n;
 const MIN_AMOUNT = 10n ** 14n; // 0.0001 MUSD — skip dust to avoid spam txs
+const RECEIPT_TIMEOUT_MS = 120_000;
 
 export interface AccrueParams {
   savingsVault: `0x${string}`;
@@ -78,8 +80,13 @@ export async function executeAccrueYield(
         account,
       }),
     );
-    approveTxHash = await walletClient.writeContract(request);
-    await withRetry(() => publicClient.waitForTransactionReceipt({ hash: approveTxHash! }));
+    // Route through the same serial queue as skim/defend so the keeper's nonce
+    // stays sequential even if this ever overlaps the vault loop.
+    approveTxHash = await enqueueWrite(async () => {
+      const hash = await walletClient.writeContract(request);
+      await withRetry(() => publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS }));
+      return hash;
+    });
   }
 
   const { request } = await withRetry(() =>
@@ -91,6 +98,13 @@ export async function executeAccrueYield(
       account,
     }),
   );
-  const txHash = await walletClient.writeContract(request);
+  const txHash = await enqueueWrite(async () => {
+    const hash = await walletClient.writeContract(request);
+    const receipt = await withRetry(() =>
+      publicClient.waitForTransactionReceipt({ hash, timeout: RECEIPT_TIMEOUT_MS }),
+    );
+    if (receipt.status === 'reverted') throw new Error(`accrueYield reverted on-chain (${hash})`);
+    return hash;
+  });
   return { amount, txHash, approveTxHash };
 }

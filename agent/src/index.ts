@@ -22,17 +22,25 @@ interface Deps {
 }
 
 const VAULT_CONCURRENCY = 5;
-// Below this the price feed is returning garbage (1e18-scaled USD; ~$100/BTC).
+// Sane band for the BTC price feed (1e18-scaled USD): ~$100 .. ~$10M. Outside
+// this the reading is garbage; skim is paused but defend (ICR-based, read from
+// the vault on-chain) still runs.
 const MIN_SANE_PRICE = 10n ** 20n;
+const MAX_SANE_PRICE = 10n ** 25n;
 
 // Consecutive defend failures per vault — a sustained streak means a vault is
 // drifting toward liquidation while our repair keeps failing (e.g. out of gas).
 const defendFailures = new Map<string, number>();
 
-async function processVault(deps: Deps, vault: `0x${string}`, price: bigint): Promise<void> {
+// Monotonic cycle counter. A cycle abandoned by the watchdog (withTimeout) keeps
+// running; guarding metric writes on the active seq stops that zombie cycle from
+// clobbering the liveness/counters of the cycle that succeeds it.
+let cycleSeq = 0;
+
+async function processVault(deps: Deps, vault: `0x${string}`, price: bigint, priceSane: boolean): Promise<void> {
   const { clients, logger, db, metrics } = deps;
   const snap = await snapshotVault(clients.publicClient, vault);
-  const { action, reason } = decide(snap, price);
+  const { action, reason } = decide(snap, price, priceSane);
   logger.info({ vault, action, icr: snap.icrBps }, reason);
 
   let txHash: Hash | undefined;
@@ -141,21 +149,28 @@ async function checkKeeperGas(deps: Deps): Promise<void> {
   }
 }
 
-async function runCycle(deps: Deps): Promise<void> {
+async function runCycle(deps: Deps, seq: number): Promise<void> {
   const { clients, config, logger, metrics } = deps;
   const start = Date.now();
-  metrics.running = true;
-  metrics.lastCycleStart = start;
+  const active = () => seq === cycleSeq;
+  if (active()) {
+    metrics.running = true;
+    metrics.lastCycleStart = start;
+  }
 
   try {
     await checkKeeperGas(deps);
 
     const { price, vaults } = await fetchPriceAndVaults(clients.publicClient, config);
-    if (price < MIN_SANE_PRICE) {
-      throw new Error(`implausible BTC price from feed: ${price.toString()} (1e18 scale) — skipping cycle`);
+    const priceSane = price >= MIN_SANE_PRICE && price <= MAX_SANE_PRICE;
+    if (!priceSane) {
+      logger.warn(
+        { price: price.toString() },
+        'BTC price feed out of sane band — pausing skim this cycle (defend still active)',
+      );
     }
-    logger.info({ btcUsd: (Number(price) / 1e18).toFixed(0), vaults: vaults.length }, 'cycle start');
-    metrics.vaultsSeen = vaults.length;
+    logger.info({ btcUsd: (Number(price) / 1e18).toFixed(0), vaults: vaults.length, priceSane }, 'cycle start');
+    if (active()) metrics.vaultsSeen = vaults.length;
 
     await runYieldAccrual(deps);
 
@@ -163,7 +178,7 @@ async function runCycle(deps: Deps): Promise<void> {
       logger.info('no vaults yet, skipping');
     } else {
       const results = await mapWithLimit(vaults, VAULT_CONCURRENCY, vault =>
-        processVault(deps, vault, price),
+        processVault(deps, vault, price, priceSane),
       );
       const failed = results.filter(r => r.status === 'rejected').length;
       logger.info(
@@ -172,16 +187,22 @@ async function runCycle(deps: Deps): Promise<void> {
       );
     }
 
-    metrics.cyclesRun += 1;
-    metrics.lastSuccessAt = Date.now();
+    if (active()) {
+      metrics.cyclesRun += 1;
+      metrics.lastSuccessAt = Date.now();
+    }
   } catch (err) {
-    metrics.cyclesFailed += 1;
-    metrics.lastError = err instanceof Error ? err.message : String(err);
+    if (active()) {
+      metrics.cyclesFailed += 1;
+      metrics.lastError = err instanceof Error ? err.message : String(err);
+    }
     throw err;
   } finally {
-    metrics.lastCycleEnd = Date.now();
-    metrics.lastCycleMs = metrics.lastCycleEnd - start;
-    metrics.running = false;
+    if (active()) {
+      metrics.lastCycleEnd = Date.now();
+      metrics.lastCycleMs = metrics.lastCycleEnd - start;
+      metrics.running = false;
+    }
   }
 }
 
@@ -229,8 +250,10 @@ async function main(): Promise<void> {
       return;
     }
     running = true;
+    cycleSeq += 1;
+    const seq = cycleSeq;
     try {
-      await withTimeout(runCycle(deps), config.CYCLE_TIMEOUT_MS, 'cycle exceeded CYCLE_TIMEOUT_MS');
+      await withTimeout(runCycle(deps, seq), config.CYCLE_TIMEOUT_MS, 'cycle exceeded CYCLE_TIMEOUT_MS');
     } catch (err) {
       logger.error({ err }, 'cycle error');
     } finally {

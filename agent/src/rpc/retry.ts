@@ -1,5 +1,6 @@
 const TRANSIENT_PATTERNS = [
   /timeout/i,
+  /timed out/i, // viem's WaitForTransactionReceiptTimeoutError ("Timed out while waiting…")
   /network/i,
   /fetch failed/i,
   /econnreset/i,

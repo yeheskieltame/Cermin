@@ -70,18 +70,20 @@ export interface Decision {
   reason: string;
 }
 
-export function decide(snap: VaultSnapshot, currentPrice: bigint): Decision {
-  // Defense beats skim: if ICR is below threshold, repay before anything else.
+export function decide(snap: VaultSnapshot, currentPrice: bigint, priceSane = true): Decision {
+  // Defense beats skim and is price-feed-independent: the ICR comes from the
+  // vault's own on-chain reading, so a degraded off-chain price must NOT block it.
   if (snap.icrBps < snap.params.defendICR) {
-    const priceUsd = Number(currentPrice / 10n ** 16n) / 100;
+    const priceNote = priceSane ? `BTC at $${(Number(currentPrice / 10n ** 16n) / 100).toFixed(0)}. ` : '';
     return {
       action: 'DEFEND',
-      reason: `BTC at $${priceUsd.toFixed(0)}. ICR fell to ${(snap.icrBps / 100).toFixed(1)}%, below defend threshold of ${(snap.params.defendICR / 100).toFixed(1)}%.`,
+      reason: `${priceNote}ICR fell to ${(snap.icrBps / 100).toFixed(1)}%, below defend threshold of ${(snap.params.defendICR / 100).toFixed(1)}%.`,
     };
   }
 
+  // Skim relies on a trustworthy price move; pause it when the feed is out of band.
   const last = snap.state.lastSkimPrice;
-  if (last > 0n && currentPrice > last) {
+  if (priceSane && last > 0n && currentPrice > last) {
     const moveBps = Number(((currentPrice - last) * BigInt(BPS)) / last);
     if (moveBps >= snap.params.skimThresholdBps) {
       return {
@@ -91,5 +93,10 @@ export function decide(snap: VaultSnapshot, currentPrice: bigint): Decision {
     }
   }
 
-  return { action: 'HOLD', reason: 'Vault is healthy and no skim threshold crossed.' };
+  return {
+    action: 'HOLD',
+    reason: priceSane
+      ? 'Vault is healthy and no skim threshold crossed.'
+      : 'Vault is healthy; price feed out of band, skim paused.',
+  };
 }
