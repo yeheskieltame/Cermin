@@ -24,7 +24,7 @@ export interface VaultSnapshot {
   collateral: bigint;
 }
 
-export type Action = 'SKIM' | 'DEFEND' | 'HOLD';
+export type Action = 'SKIM' | 'DEFEND' | 'HOLD' | 'ACCRUE';
 
 export interface DecisionLog {
   vault: `0x${string}`;

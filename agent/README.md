@@ -24,6 +24,9 @@ Calls are simulated first, so a doomed `skim`/`defend` never spends gas.
 | `POLL_INTERVAL_MS` | `600000` | Cycle interval (10 min) |
 | `DB_PATH` | `/data/cermin.db` | Action-log SQLite (Docker sets this) |
 | `LOG_LEVEL` | `info` | `debug`/`info`/`warn`/`error` |
+| `GAS_WARN_THRESHOLD_WEI` | `1000000000000000` | Warn below this signer balance (0.001 BTC) |
+| `HEALTH_PORT` / `PORT` | `8080` | Liveness server; Railway injects `PORT` and probes `/health` |
+| `CYCLE_TIMEOUT_MS` | `300000` | Watchdog: a cycle over this is reported unhealthy |
 
 The keeper key only signs the permissionless `skim`/`defend` — it can't move
 funds anywhere except per the vault's own logic. Fund it with a little testnet
@@ -48,5 +51,26 @@ npm run dev            # tsx watch, one cycle then every POLL_INTERVAL_MS
 5. **Deploy.** Watch the logs for `cycle complete`. Restart policy is
    `ON_FAILURE` (see `railway.json`).
 
-Build/run: the Dockerfile installs deps (with the toolchain `better-sqlite3`
-needs), runs `npm run build`, then `node dist/index.js`.
+Build/run: the multi-stage Dockerfile compiles in a `builder` stage (with the
+toolchain `better-sqlite3` needs), prunes devDeps, and copies only `dist/` +
+production `node_modules` into a slim `runner` stage that runs `node dist/index.js`.
+
+## Health & ops
+
+- **Liveness:** `GET /health` returns `200` with a JSON metrics snapshot
+  (cycles run/failed, tx submitted/failed, keeper balance, last success) and
+  `503` when a cycle has hung past `CYCLE_TIMEOUT_MS` or no cycle has succeeded
+  for too long. Railway probes it automatically (`healthcheckPath` in
+  `railway.json`).
+- **Gas:** the keeper warns each cycle when its BTC balance falls below
+  `GAS_WARN_THRESHOLD_WEI`. A failed `defend` logs a `LIQUIDATION RISK` line with
+  a consecutive-failure count.
+- **Nonce safety:** all on-chain writes funnel through a serial queue and await
+  their receipt, so concurrent per-vault processing never collides nonces.
+
+## Test
+
+```bash
+npm test     # node:test unit tests for the decide() policy
+npm run lint # tsc --noEmit
+```

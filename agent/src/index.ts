@@ -3,11 +3,14 @@ import type { Hash } from 'viem';
 
 import { loadConfig, type Config } from './config.js';
 import { createClients, type AgentClients } from './rpc/clients.js';
-import { mapWithLimit } from './rpc/retry.js';
+import { mapWithLimit, withRetry } from './rpc/retry.js';
 import { fetchPriceAndVaults, snapshotVault, decide } from './monitors/vaults.js';
 import { executeSkim } from './executors/skim.js';
 import { executeDefend } from './executors/defend.js';
-import { initDb, recordAction } from './storage/actionLog.js';
+import { executeAccrueYield } from './executors/accrueYield.js';
+import { initDb, recordAction, lastActionAt } from './storage/actionLog.js';
+import { createMetrics, type Metrics } from './metrics.js';
+import { startHealthServer } from './health.js';
 import type { Action } from './types.js';
 
 interface Deps {
@@ -15,12 +18,19 @@ interface Deps {
   clients: AgentClients;
   logger: Logger;
   db: ReturnType<typeof initDb>;
+  metrics: Metrics;
 }
 
 const VAULT_CONCURRENCY = 5;
+// Below this the price feed is returning garbage (1e18-scaled USD; ~$100/BTC).
+const MIN_SANE_PRICE = 10n ** 20n;
+
+// Consecutive defend failures per vault — a sustained streak means a vault is
+// drifting toward liquidation while our repair keeps failing (e.g. out of gas).
+const defendFailures = new Map<string, number>();
 
 async function processVault(deps: Deps, vault: `0x${string}`, price: bigint): Promise<void> {
-  const { clients, logger, db } = deps;
+  const { clients, logger, db, metrics } = deps;
   const snap = await snapshotVault(clients.publicClient, vault);
   const { action, reason } = decide(snap, price);
   logger.info({ vault, action, icr: snap.icrBps }, reason);
@@ -29,14 +39,28 @@ async function processVault(deps: Deps, vault: `0x${string}`, price: bigint): Pr
   try {
     if (action === 'DEFEND') {
       txHash = await executeDefend(clients.publicClient, clients.walletClient, vault);
+      defendFailures.set(vault, 0);
     } else if (action === 'SKIM') {
       txHash = await executeSkim(clients.publicClient, clients.walletClient, vault);
     }
+    if (txHash) {
+      metrics.txSubmitted += 1;
+      logger.info({ vault, action, txHash }, 'tx confirmed');
+    }
   } catch (err) {
-    logger.error({ vault, action, err }, 'tx execution failed');
+    metrics.txFailed += 1;
+    metrics.lastError = err instanceof Error ? err.message : String(err);
+    if (action === 'DEFEND') {
+      const n = (defendFailures.get(vault) ?? 0) + 1;
+      defendFailures.set(vault, n);
+      logger.error(
+        { vault, icr: snap.icrBps, consecutiveFailures: n, err },
+        `LIQUIDATION RISK: defend failed ${n}x — ICR ${(snap.icrBps / 100).toFixed(1)}%`,
+      );
+    } else {
+      logger.error({ vault, action, err }, 'tx execution failed');
+    }
   }
-
-  if (txHash) logger.info({ vault, action, txHash }, 'tx submitted');
 
   recordAction(db, {
     vault,
@@ -47,27 +71,128 @@ async function processVault(deps: Deps, vault: `0x${string}`, price: bigint): Pr
   });
 }
 
-async function runCycle(deps: Deps): Promise<void> {
-  const { clients, config, logger } = deps;
-  const start = Date.now();
+// Stand in for Mezo's PCV on testnet: drip a small, timestamp-proportional
+// amount of MUSD into the (mock) savings vault each window so sMUSD holders
+// see a realistic ~APR. Off unless YIELD_ENABLED and the signer holds MUSD.
+async function runYieldAccrual(deps: Deps): Promise<void> {
+  const { config, clients, logger, db } = deps;
+  if (!config.YIELD_ENABLED) return;
 
-  const { price, vaults } = await fetchPriceAndVaults(clients.publicClient, config);
-  logger.info({ btcUsd: (Number(price) / 1e18).toFixed(0), vaults: vaults.length }, 'cycle start');
+  const vault = config.SAVINGS_VAULT_ADDRESS;
+  const now = Date.now();
+  const last = lastActionAt(db, vault, 'ACCRUE');
 
-  if (vaults.length === 0) {
-    logger.info('no vaults yet, skipping');
+  // First run: record a baseline so dt is measured from agent start, not the
+  // epoch (which would inject one enormous catch-up amount).
+  if (last === null) {
+    recordAction(db, { vault, action: 'ACCRUE', reason: 'baseline (agent start)', timestamp: now });
     return;
   }
 
-  const results = await mapWithLimit(vaults, VAULT_CONCURRENCY, vault =>
-    processVault(deps, vault, price),
-  );
+  const elapsed = now - last;
+  if (elapsed < config.YIELD_MIN_INTERVAL_MS) return;
+  const dtMs = Math.min(elapsed, config.YIELD_MAX_CATCHUP_MS);
 
-  const failed = results.filter(r => r.status === 'rejected').length;
-  logger.info(
-    { durationMs: Date.now() - start, vaults: vaults.length, failed },
-    'cycle complete',
-  );
+  try {
+    const res = await executeAccrueYield(clients.publicClient, clients.walletClient, {
+      savingsVault: vault,
+      musd: config.MUSD_ADDRESS,
+      aprBps: config.YIELD_APR_BPS,
+      dtSeconds: dtMs / 1000,
+    });
+    const musd = (Number(res.amount) / 1e18).toFixed(6);
+    if (res.skipped) {
+      // Leave the last-accrual timestamp untouched so dt keeps accumulating.
+      logger.info({ savingsVault: vault, amountMusd: musd }, `yield accrual skipped: ${res.skipped}`);
+      return;
+    }
+    logger.info({ savingsVault: vault, amountMusd: musd, txHash: res.txHash }, 'yield accrued');
+    recordAction(db, {
+      vault,
+      action: 'ACCRUE',
+      reason: `+${musd} MUSD (~${(config.YIELD_APR_BPS / 100).toFixed(1)}% APR · ${(dtMs / 3_600_000).toFixed(1)}h)`,
+      txHash: res.txHash,
+      timestamp: now,
+    });
+  } catch (err) {
+    logger.error({ savingsVault: vault, err }, 'yield accrual failed');
+  }
+}
+
+// Read the keeper's gas balance and warn when it's running low. An empty signer
+// makes every skim/defend revert — and a missed defend can let a vault liquidate.
+async function checkKeeperGas(deps: Deps): Promise<void> {
+  const { clients, config, logger, metrics } = deps;
+  const keeper = clients.walletClient.account?.address;
+  if (!keeper) return;
+  metrics.keeper = keeper;
+  const balance = await withRetry(() => clients.publicClient.getBalance({ address: keeper }));
+  metrics.keeperBalanceWei = balance.toString();
+  metrics.lowGas = balance < config.GAS_WARN_THRESHOLD_WEI;
+  if (metrics.lowGas) {
+    logger.warn(
+      {
+        keeper,
+        balanceBtc: (Number(balance) / 1e18).toFixed(6),
+        thresholdBtc: (Number(config.GAS_WARN_THRESHOLD_WEI) / 1e18).toFixed(6),
+      },
+      'keeper gas balance low — fund the signer or skim/defend will fail',
+    );
+  }
+}
+
+async function runCycle(deps: Deps): Promise<void> {
+  const { clients, config, logger, metrics } = deps;
+  const start = Date.now();
+  metrics.running = true;
+  metrics.lastCycleStart = start;
+
+  try {
+    await checkKeeperGas(deps);
+
+    const { price, vaults } = await fetchPriceAndVaults(clients.publicClient, config);
+    if (price < MIN_SANE_PRICE) {
+      throw new Error(`implausible BTC price from feed: ${price.toString()} (1e18 scale) — skipping cycle`);
+    }
+    logger.info({ btcUsd: (Number(price) / 1e18).toFixed(0), vaults: vaults.length }, 'cycle start');
+    metrics.vaultsSeen = vaults.length;
+
+    await runYieldAccrual(deps);
+
+    if (vaults.length === 0) {
+      logger.info('no vaults yet, skipping');
+    } else {
+      const results = await mapWithLimit(vaults, VAULT_CONCURRENCY, vault =>
+        processVault(deps, vault, price),
+      );
+      const failed = results.filter(r => r.status === 'rejected').length;
+      logger.info(
+        { durationMs: Date.now() - start, vaults: vaults.length, failed },
+        'cycle complete',
+      );
+    }
+
+    metrics.cyclesRun += 1;
+    metrics.lastSuccessAt = Date.now();
+  } catch (err) {
+    metrics.cyclesFailed += 1;
+    metrics.lastError = err instanceof Error ? err.message : String(err);
+    throw err;
+  } finally {
+    metrics.lastCycleEnd = Date.now();
+    metrics.lastCycleMs = metrics.lastCycleEnd - start;
+    metrics.running = false;
+  }
+}
+
+// Reject the cycle promise if it overruns, so a wedged RPC call can't pin the
+// loop forever. The underlying work is abandoned; the next tick starts clean.
+function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([p.finally(() => clearTimeout(timer)), timeout]);
 }
 
 async function main(): Promise<void> {
@@ -79,7 +204,19 @@ async function main(): Promise<void> {
   });
   const db = initDb(config.DB_PATH);
   const clients = createClients(config);
-  const deps: Deps = { config, clients, logger, db };
+  const metrics = createMetrics();
+  const deps: Deps = { config, clients, logger, db, metrics };
+
+  const port = Number(process.env['PORT']) || config.HEALTH_PORT;
+  const healthServer = startHealthServer(
+    port,
+    metrics,
+    {
+      cycleTimeoutMs: config.CYCLE_TIMEOUT_MS,
+      maxSilenceMs: config.POLL_INTERVAL_MS * 2 + config.CYCLE_TIMEOUT_MS,
+    },
+    logger,
+  );
 
   logger.info({ rpc: config.MEZO_TESTNET_RPC, intervalMs: config.POLL_INTERVAL_MS }, 'Cermin agent starting');
 
@@ -93,7 +230,7 @@ async function main(): Promise<void> {
     }
     running = true;
     try {
-      await runCycle(deps);
+      await withTimeout(runCycle(deps), config.CYCLE_TIMEOUT_MS, 'cycle exceeded CYCLE_TIMEOUT_MS');
     } catch (err) {
       logger.error({ err }, 'cycle error');
     } finally {
@@ -109,6 +246,7 @@ async function main(): Promise<void> {
     stopped = true;
     logger.info({ signal }, 'shutting down');
     clearInterval(handle);
+    healthServer.close();
     db.close();
     // Give in-flight tx a brief grace period before exit.
     setTimeout(() => process.exit(0), running ? 5_000 : 0).unref();

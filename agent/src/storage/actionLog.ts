@@ -28,6 +28,20 @@ export function recordAction(db: Database.Database, log: DecisionLog): void {
   `).run(log.vault, log.action, log.reason, log.txHash ?? null, log.timestamp);
 }
 
+/** Most recent timestamp (ms) for a given action on a target, or null. */
+export function lastActionAt(
+  db: Database.Database,
+  vault: string,
+  action: string,
+): number | null {
+  const row = db
+    .prepare(
+      'SELECT timestamp FROM actions WHERE vault = ? AND action = ? ORDER BY timestamp DESC LIMIT 1',
+    )
+    .get(vault, action) as { timestamp: number } | undefined;
+  return row?.timestamp ?? null;
+}
+
 export function recentActions(db: Database.Database, vault: string, limit = 20): DecisionLog[] {
   const rows = db
     .prepare('SELECT vault, action, reason, tx_hash, timestamp FROM actions WHERE vault = ? ORDER BY timestamp DESC LIMIT ?')
