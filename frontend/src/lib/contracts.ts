@@ -219,3 +219,26 @@ export const ERC20_ABI = [
     stateMutability: "view",
   },
 ] as const;
+
+// Mezo MUSDSavingsRate / Cermin MockSavingsVault — claim-based (NOT ERC4626).
+// sMUSD mints 1:1; yield accrues via index, claimed separately.
+export const SAVINGS_VAULT_ABI = [
+  { type: "function", name: "totalSupply", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "view" },
+  {
+    type: "function",
+    name: "balanceOf",
+    inputs: [{ name: "account", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  {
+    type: "function",
+    name: "claimableYield",
+    inputs: [{ name: "holder", type: "address" }],
+    outputs: [{ name: "", type: "uint256" }],
+    stateMutability: "view",
+  },
+  { type: "function", name: "deposit", inputs: [{ name: "amount", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "withdraw", inputs: [{ name: "amount", type: "uint256" }], outputs: [], stateMutability: "nonpayable" },
+  { type: "function", name: "claimYield", inputs: [], outputs: [{ name: "", type: "uint256" }], stateMutability: "nonpayable" },
+] as const;

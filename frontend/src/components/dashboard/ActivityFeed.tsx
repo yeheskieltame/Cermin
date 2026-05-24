@@ -6,15 +6,19 @@ import { usePublicClient } from "wagmi";
 import { parseAbiItem, formatUnits, type PublicClient } from "viem";
 import { Card } from "@/components/ui/Card";
 import { truncateAddress } from "@/lib/utils";
-import { Activity } from "lucide-react";
+import { Activity, Zap, ShieldCheck, ArrowUpRight, Plus, Lock } from "lucide-react";
 
 type EventKind = "Skimmed" | "Defended" | "Withdrawn" | "Deposited" | "Closed";
+type Tone = "success" | "warning" | "info" | "amber" | "muted";
 
-interface FeedEvent {
+export interface FeedEvent {
   type: EventKind;
   txHash: string;
   blockNumber: bigint;
-  label: string;
+  title: string;
+  detail: string;
+  value: string;
+  tone: Tone;
 }
 
 const EVENTS = {
@@ -28,17 +32,14 @@ const EVENTS = {
     "event SpendableWithdrawn(address indexed recipient, uint256 amount)",
   ),
   Deposited: parseAbiItem("event CollateralAdded(uint256 amount)"),
-  Closed: parseAbiItem(
-    "event Closed(uint256 btcReturned, uint256 musdRemainder)",
-  ),
+  Closed: parseAbiItem("event Closed(uint256 btcReturned, uint256 musdRemainder)"),
 } as const;
 
 const LOOKBACK_BLOCKS = 5_000n;
 const REFRESH_MS = 30_000;
 
-function formatMusd(wei: bigint): string {
-  const v = parseFloat(formatUnits(wei, 18));
-  return v.toLocaleString("en-US", {
+function musd(wei: bigint): string {
+  return parseFloat(formatUnits(wei, 18)).toLocaleString("en-US", {
     minimumFractionDigits: 2,
     maximumFractionDigits: 2,
   });
@@ -68,7 +69,10 @@ async function fetchActivity(
       type: "Skimmed",
       txHash: log.transactionHash ?? "",
       blockNumber: log.blockNumber ?? 0n,
-      label: `Skim: +${formatMusd(toSpendable)} spendable, +${formatMusd(toVault)} to vault`,
+      title: "Skimmed on a peak",
+      detail: "Topped up your Shadow",
+      value: `+$${musd(toSpendable + toVault)}`,
+      tone: "success",
     });
   }
   for (const log of defenses) {
@@ -79,7 +83,10 @@ async function fetchActivity(
       type: "Defended",
       txHash: log.transactionHash ?? "",
       blockNumber: log.blockNumber ?? 0n,
-      label: `Defense: repaid ${formatMusd(repaid)} MUSD (ICR ${icrBefore.toFixed(0)}% → ${icrAfter.toFixed(0)}%)`,
+      title: "Defended the dip",
+      detail: `ICR ${icrBefore.toFixed(0)}% → ${icrAfter.toFixed(0)}%`,
+      value: `−$${musd(repaid)}`,
+      tone: "warning",
     });
   }
   for (const log of withdrawals) {
@@ -89,7 +96,10 @@ async function fetchActivity(
       type: "Withdrawn",
       txHash: log.transactionHash ?? "",
       blockNumber: log.blockNumber ?? 0n,
-      label: `Withdraw ${formatMusd(amt)} MUSD → ${truncateAddress(to)}`,
+      title: "Withdrew from Shadow",
+      detail: `To ${truncateAddress(to)}`,
+      value: `−$${musd(amt)}`,
+      tone: "info",
     });
   }
   for (const log of deposits) {
@@ -98,7 +108,10 @@ async function fetchActivity(
       type: "Deposited",
       txHash: log.transactionHash ?? "",
       blockNumber: log.blockNumber ?? 0n,
-      label: `Added ${(Number(amt) / 1e18).toFixed(6)} BTC collateral`,
+      title: "Added collateral",
+      detail: "Raised your buffer",
+      value: `+${(Number(amt) / 1e18).toFixed(4)} BTC`,
+      tone: "amber",
     });
   }
   for (const log of closes) {
@@ -107,7 +120,10 @@ async function fetchActivity(
       type: "Closed",
       txHash: log.transactionHash ?? "",
       blockNumber: log.blockNumber ?? 0n,
-      label: `Vault closed — ${(Number(btc) / 1e18).toFixed(6)} BTC returned`,
+      title: "Vault closed",
+      detail: "BTC returned to you",
+      value: `${(Number(btc) / 1e18).toFixed(4)} BTC`,
+      tone: "muted",
     });
   }
 
@@ -115,93 +131,127 @@ async function fetchActivity(
   return parsed.slice(0, 20);
 }
 
-export function ActivityFeed({ vaultAddress }: { vaultAddress: `0x${string}` }) {
+const ICONS: Record<EventKind, React.ReactNode> = {
+  Skimmed: <Zap className="w-4 h-4" />,
+  Defended: <ShieldCheck className="w-4 h-4" />,
+  Withdrawn: <ArrowUpRight className="w-4 h-4" />,
+  Deposited: <Plus className="w-4 h-4" />,
+  Closed: <Lock className="w-4 h-4" />,
+};
+
+const CHIP: Record<Tone, string> = {
+  success: "bg-success/12 text-success",
+  warning: "bg-amber-50 text-amber-700",
+  info: "bg-info/12 text-info",
+  amber: "bg-amber-50 text-amber-600",
+  muted: "bg-surface-soft text-muted-2",
+};
+
+const VALUE: Record<Tone, string> = {
+  success: "text-success",
+  warning: "text-warning",
+  info: "text-info",
+  amber: "text-amber-700",
+  muted: "text-muted",
+};
+
+export function ActivityFeed({
+  vaultAddress,
+  previewEvents,
+}: {
+  vaultAddress: `0x${string}`;
+  previewEvents?: FeedEvent[];
+}) {
   const client = usePublicClient();
   const { data, isLoading, isError } = useQuery({
     queryKey: ["activity", vaultAddress],
     queryFn: () => fetchActivity(client as PublicClient, vaultAddress),
-    enabled: !!vaultAddress && !!client,
+    enabled: !previewEvents && !!vaultAddress && !!client,
     refetchInterval: REFRESH_MS,
     staleTime: REFRESH_MS / 2,
     retry: 2,
   });
 
-  const events = useMemo(() => data ?? [], [data]);
-
-  const dot: Record<EventKind, string> = {
-    Skimmed: "bg-success",
-    Defended: "bg-warning",
-    Withdrawn: "bg-info",
-    Deposited: "bg-amber-500",
-    Closed: "bg-muted-2",
-  };
-
-  const text: Record<EventKind, string> = {
-    Skimmed: "text-success",
-    Defended: "text-warning",
-    Withdrawn: "text-info",
-    Deposited: "text-amber-700",
-    Closed: "text-muted",
-  };
+  const events = useMemo(() => previewEvents ?? data ?? [], [previewEvents, data]);
+  const loading = !previewEvents && isLoading;
 
   return (
     <Card>
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <p className="text-muted text-sm mb-0.5">Activity</p>
-          <p className="text-muted-2 text-xs">On-chain vault events</p>
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2.5">
+          <span className="font-mono text-xs text-amber-500 tabular-nums">004</span>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-muted font-medium">Activity</p>
+            <p className="text-muted-2 text-xs">Everything your vault does, on-chain</p>
+          </div>
         </div>
-        <Activity className="w-4 h-4 text-muted-2" />
+        {events.length > 0 && (
+          <span className="font-mono text-[11px] text-muted-2 tabular-nums">{events.length} events</span>
+        )}
       </div>
 
-      {isLoading ? (
-        <div className="space-y-3">
+      {loading ? (
+        <div className="space-y-2">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="flex items-center gap-3 animate-pulse">
-              <div className="w-2 h-2 rounded-full bg-cream-300" />
-              <div className="h-3 bg-cream-200 rounded flex-1" />
-              <div className="h-3 bg-cream-200 rounded w-16" />
+            <div key={i} className="flex items-center gap-3 px-1 py-1.5">
+              <div className="w-9 h-9 rounded-full bg-gradient-to-r from-cream-200 via-cream-100 to-cream-200 bg-[length:200%_100%] animate-shimmer" />
+              <div className="flex-1 space-y-1.5">
+                <div className="h-3 w-1/3 rounded bg-gradient-to-r from-cream-200 via-cream-100 to-cream-200 bg-[length:200%_100%] animate-shimmer" />
+                <div className="h-2.5 w-1/4 rounded bg-gradient-to-r from-cream-200 via-cream-100 to-cream-200 bg-[length:200%_100%] animate-shimmer" />
+              </div>
+              <div className="h-3 w-14 rounded bg-gradient-to-r from-cream-200 via-cream-100 to-cream-200 bg-[length:200%_100%] animate-shimmer" />
             </div>
           ))}
         </div>
       ) : isError ? (
-        <div className="text-center py-8">
+        <div className="text-center py-10">
           <p className="text-danger text-sm">Couldn&apos;t load activity</p>
-          <p className="text-muted-2 text-xs mt-1">RPC may be temporarily unavailable</p>
+          <p className="text-muted-2 text-xs mt-1">RPC may be temporarily unavailable — retrying.</p>
         </div>
       ) : events.length === 0 ? (
-        <div className="text-center py-8">
-          <p className="text-muted text-sm">No activity yet</p>
-          <p className="text-muted-2 text-xs mt-1">
-            Events appear after the first skim or defense
+        <div className="py-8 flex flex-col items-center text-center">
+          <span className="w-14 h-14 rounded-2xl bg-amber-50 text-amber-500 flex items-center justify-center mb-4 animate-float">
+            <Activity className="w-6 h-6" />
+          </span>
+          <p className="text-ink text-sm font-medium">No activity yet</p>
+          <p className="text-muted-2 text-xs mt-1 max-w-xs leading-relaxed">
+            Skims, defenses, withdrawals and deposits stream in here the moment they
+            settle on-chain.
           </p>
+          <div className="mt-6 w-full max-w-md space-y-2.5" aria-hidden>
+            {[80, 64, 72].map((w, i) => (
+              <div key={i} className="flex items-center gap-3 opacity-40">
+                <span className="w-9 h-9 rounded-full bg-cream-200 flex-shrink-0" />
+                <span className="h-2.5 rounded-full bg-cream-200" style={{ width: `${w}%` }} />
+                <span className="h-2.5 w-12 rounded-full bg-cream-200 ml-auto" />
+              </div>
+            ))}
+          </div>
         </div>
       ) : (
-        <div className="space-y-3 max-h-64 overflow-y-auto pr-1 scrollbar-thin">
+        <div className="space-y-1 max-h-80 overflow-y-auto pr-1 scrollbar-thin">
           {events.map((ev, i) => (
-            <div key={`${ev.txHash}-${i}`} className="flex items-start gap-3">
-              <div
-                className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${dot[ev.type]}`}
-              />
+            <a
+              key={`${ev.txHash}-${i}`}
+              href={ev.txHash ? `https://explorer.test.mezo.org/tx/${ev.txHash}` : undefined}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-center gap-3 rounded-2xl px-2.5 py-2.5 hover:bg-surface-soft transition-colors"
+            >
+              <span className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 ${CHIP[ev.tone]}`}>
+                {ICONS[ev.type]}
+              </span>
               <div className="flex-1 min-w-0">
-                <p className={`text-xs truncate ${text[ev.type]}`}>{ev.label}</p>
-                <p className="text-[10px] text-muted-2 mt-0.5">
-                  Block #{ev.blockNumber.toString()}
-                  {ev.txHash && (
-                    <span className="ml-2">
-                      <a
-                        href={`https://explorer.test.mezo.org/tx/${ev.txHash}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-muted hover:text-ink transition-colors"
-                      >
-                        ↗
-                      </a>
-                    </span>
-                  )}
+                <p className="text-sm font-medium text-ink truncate">{ev.title}</p>
+                <p className="text-[11px] text-muted-2 font-mono truncate">
+                  {ev.detail} · #{ev.blockNumber.toString()}
                 </p>
               </div>
-            </div>
+              <span className={`text-sm font-semibold tabular-nums flex-shrink-0 ${VALUE[ev.tone]}`}>
+                {ev.value}
+              </span>
+              <ArrowUpRight className="w-3.5 h-3.5 text-muted-2 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0" />
+            </a>
           ))}
         </div>
       )}

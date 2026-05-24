@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { Fraunces } from "next/font/google";
+import "lenis/dist/lenis.css";
 import "./globals.css";
 import { Web3Provider } from "@/components/providers/Web3Provider";
+import { SmoothScroll } from "@/components/providers/SmoothScroll";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -17,7 +19,8 @@ const geistMono = localFont({
 const fraunces = Fraunces({
   subsets: ["latin"],
   variable: "--font-fraunces",
-  weight: ["400", "500", "600", "700"],
+  style: ["normal", "italic"],
+  axes: ["opsz", "SOFT", "WONK"],
   display: "swap",
 });
 
@@ -45,9 +48,12 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body
-        className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} bg-canvas text-ink antialiased font-sans`}
+        className={`${geistSans.variable} ${geistMono.variable} ${fraunces.variable} text-ink antialiased font-sans`}
       >
-        <Web3Provider>{children}</Web3Provider>
+        <Web3Provider>
+          <SmoothScroll>{children}</SmoothScroll>
+        </Web3Provider>
+        <div aria-hidden className="grain" />
       </body>
     </html>
   );

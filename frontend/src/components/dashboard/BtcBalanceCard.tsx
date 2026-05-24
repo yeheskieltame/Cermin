@@ -1,15 +1,19 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { parseEther } from "viem";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { AnimatedNumber } from "@/components/ui/AnimatedNumber";
 import { formatUsd } from "@/lib/utils";
-import { ShieldCheck, Bitcoin } from "lucide-react";
+import { ShieldCheck, Bitcoin, Plus } from "lucide-react";
 
-interface BtcBalanceCardProps {
+const MEZO_MAX_LTV = 90;
+
+interface CollateralCardProps {
   collateral: bigint;
+  debt: bigint;
   btcPriceUsd: number;
   onAddCollateral?: (amountWei: bigint) => void;
   isAddCollateralLoading?: boolean;
@@ -17,21 +21,32 @@ interface BtcBalanceCardProps {
 
 export function BtcBalanceCard({
   collateral,
+  debt,
   btcPriceUsd,
   onAddCollateral,
   isAddCollateralLoading,
-}: BtcBalanceCardProps) {
+}: CollateralCardProps) {
   const btcAmount = Number(collateral) / 1e18;
   const usdValue = btcAmount * btcPriceUsd;
+  const debtMusd = Number(debt) / 1e18;
+  const netValue = usdValue - debtMusd;
+  const ltvPct = usdValue > 0 ? (debtMusd / usdValue) * 100 : 0;
 
   const [showForm, setShowForm] = useState(false);
   const [amount, setAmount] = useState("");
+  const [barW, setBarW] = useState(0);
+  useEffect(() => {
+    const id = setTimeout(
+      () => requestAnimationFrame(() => setBarW(Math.min(100, (ltvPct / MEZO_MAX_LTV) * 100))),
+      200,
+    );
+    return () => clearTimeout(id);
+  }, [ltvPct]);
 
   const validation = useMemo(() => {
     if (!amount) return { ok: false, reason: null as string | null };
     const parsed = parseFloat(amount);
-    if (isNaN(parsed) || parsed <= 0)
-      return { ok: false, reason: "Enter a positive amount" };
+    if (isNaN(parsed) || parsed <= 0) return { ok: false, reason: "Enter a positive amount" };
     return { ok: true, reason: null };
   }, [amount]);
 
@@ -51,47 +66,79 @@ export function BtcBalanceCard({
   };
 
   return (
-    <Card glow className="relative overflow-hidden">
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <p className="text-muted text-sm mb-0.5">Bitcoin Collateral</p>
-          <p className="text-muted-2 text-xs">Locked · Never sold</p>
+    <Card glow className="relative overflow-hidden flex flex-col">
+      <Bitcoin
+        aria-hidden
+        className="pointer-events-none absolute -right-6 -bottom-6 w-32 h-32 text-amber-500/[0.06]"
+      />
+      <div className="relative flex items-start justify-between mb-5">
+        <div className="flex items-center gap-2.5">
+          <span className="font-mono text-xs text-amber-500 tabular-nums">001</span>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-muted font-medium">Bitcoin</p>
+            <p className="text-muted-2 text-xs">Locked · never sold</p>
+          </div>
         </div>
         <Badge variant="success">
           <ShieldCheck className="w-3 h-3 mr-1" />
           Protected
         </Badge>
       </div>
-      <div className="flex items-end gap-3">
-        <Bitcoin className="w-8 h-8 text-amber-500/70 mb-1" />
+
+      <div className="relative flex items-end gap-3">
+        <Bitcoin className="w-7 h-7 text-amber-500/70 mb-1.5" />
         <div>
-          <p className="text-4xl font-bold text-ink tabular-nums leading-none">
-            {btcAmount.toFixed(6)}
+          <AnimatedNumber
+            value={btcAmount}
+            format={(n) => n.toFixed(6)}
+            className="block text-4xl font-semibold text-ink tabular-nums tracking-tight leading-none"
+          />
+          <p className="text-base font-medium text-muted-2 mt-1">
+            BTC ·{" "}
+            <AnimatedNumber value={usdValue} format={(n) => formatUsd(n)} className="tabular-nums" />
           </p>
-          <p className="text-lg font-medium text-muted-2 mt-1">BTC</p>
         </div>
       </div>
-      <p className="text-muted text-sm mt-4 border-t border-line pt-4">
-        {formatUsd(usdValue)}{" "}
-        <span className="text-muted-2 text-xs">@ {formatUsd(btcPriceUsd, 0)}</span>
-      </p>
+
+      {/* net value vs debt */}
+      <div className="relative grid grid-cols-2 gap-px mt-5 rounded-2xl overflow-hidden bg-line/70 border border-cream-300">
+        <div className="bg-surface px-3.5 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-2 font-mono">Net value</div>
+          <div className="text-sm font-semibold tabular-nums text-ink mt-1">{formatUsd(netValue)}</div>
+        </div>
+        <div className="bg-surface px-3.5 py-3">
+          <div className="text-[10px] uppercase tracking-[0.12em] text-muted-2 font-mono">Borrowed</div>
+          <div className="text-sm font-semibold tabular-nums text-ink mt-1">{formatUsd(debtMusd)}</div>
+        </div>
+      </div>
+
+      {/* LTV utilization */}
+      <div className="relative mt-4">
+        <div className="flex items-center justify-between text-[11px] font-mono mb-1.5">
+          <span className="text-muted">
+            Borrowed against BTC <span className="text-ink tabular-nums">{ltvPct.toFixed(0)}%</span>
+          </span>
+          <span className="text-muted-2 tabular-nums">max {MEZO_MAX_LTV}%</span>
+        </div>
+        <div className="h-1.5 rounded-full bg-cream-300 overflow-hidden">
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-amber-400 to-amber-500 transition-[width] duration-[1100ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+            style={{ width: `${barW}%` }}
+          />
+        </div>
+      </div>
 
       {onAddCollateral && (
-        <div className="mt-4">
+        <div className="relative mt-auto pt-5">
           {!showForm ? (
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => setShowForm(true)}
-              className="w-full"
-            >
+            <Button variant="secondary" size="sm" onClick={() => setShowForm(true)} className="w-full">
+              <Plus className="w-4 h-4" />
               Add BTC
             </Button>
           ) : (
             <div className="space-y-2 animate-fade-in">
               <p className="text-[11px] text-muted-2 leading-relaxed">
-                Adds collateral to your trove — raises your safety buffer (ICR).
-                It does not borrow more on its own.
+                More BTC = a bigger safety buffer. It doesn&apos;t borrow more on its own.
               </p>
               <input
                 type="number"
@@ -101,16 +148,12 @@ export function BtcBalanceCard({
                 onChange={(e) => setAmount(e.target.value)}
                 min={0}
                 step="0.001"
-                className="w-full bg-surface-soft border border-line rounded-lg px-3 py-2 text-sm text-ink placeholder-muted-2 focus:outline-none focus:border-amber-300"
+                className="w-full bg-surface border border-cream-300 rounded-xl px-3.5 py-2.5 text-sm text-ink caret-amber-500 placeholder-muted-2 focus:outline-none focus:border-amber-300 focus:shadow-ring transition-all duration-200"
               />
               {addUsd > 0 && (
-                <p className="text-[11px] text-muted-2 text-right">
-                  ≈ {formatUsd(addUsd)}
-                </p>
+                <p className="text-[11px] text-muted-2 text-right">≈ {formatUsd(addUsd)}</p>
               )}
-              {validation.reason && (
-                <p className="text-[11px] text-danger">{validation.reason}</p>
-              )}
+              {validation.reason && <p className="text-[11px] text-danger">{validation.reason}</p>}
               <div className="flex gap-2 pt-1">
                 <Button
                   variant="primary"

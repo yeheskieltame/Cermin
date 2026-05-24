@@ -1,9 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { icrToColor, icrLabel } from "@/lib/utils";
 
 interface ICRGaugeProps {
   icr: bigint;
+  dark?: boolean;
 }
 
 const RADIUS = 54;
@@ -31,11 +33,20 @@ function icrToFraction(icrBps: number): number {
   return (clamped - MIN_BPS) / (MAX_BPS - MIN_BPS);
 }
 
-export function ICRGauge({ icr }: ICRGaugeProps) {
+export function ICRGauge({ icr, dark = false }: ICRGaugeProps) {
   const icrBps = Number(icr);
   const icrPct = icrBps / 100;
   const fraction = icrToFraction(icrBps);
   const strokeColor = icrToColor(icrBps);
+
+  // Draw the fill arc on mount (and whenever the value changes) by easing the
+  // normalized dash offset from fully hidden to its target.
+  const [drawn, setDrawn] = useState(false);
+  useEffect(() => {
+    setDrawn(false);
+    const id = requestAnimationFrame(() => setDrawn(true));
+    return () => cancelAnimationFrame(id);
+  }, [fraction]);
 
   const trackStart = START_DEG;
   const trackEnd = START_DEG + SWEEP_DEG;
@@ -51,7 +62,7 @@ export function ICRGauge({ icr }: ICRGaugeProps) {
         <path
           d={trackPath}
           fill="none"
-          stroke="#EDE4D5"
+          stroke={dark ? "rgba(255,255,255,0.14)" : "#EDE4D5"}
           strokeWidth={STROKE}
           strokeLinecap="round"
         />
@@ -62,14 +73,20 @@ export function ICRGauge({ icr }: ICRGaugeProps) {
             stroke={strokeColor}
             strokeWidth={STROKE}
             strokeLinecap="round"
-            style={{ filter: `drop-shadow(0 0 4px ${strokeColor}40)` }}
+            pathLength={1}
+            strokeDasharray={1}
+            strokeDashoffset={drawn ? 0 : 1}
+            style={{
+              filter: `drop-shadow(0 0 4px ${strokeColor}40)`,
+              transition: "stroke-dashoffset 1.1s cubic-bezier(0.2, 0.8, 0.2, 1)",
+            }}
           />
         )}
         <text
           x={CENTER}
           y={CENTER - 6}
           textAnchor="middle"
-          fill="#1F1B17"
+          fill={dark ? "#FDFBF7" : "#1F1B17"}
           fontSize="18"
           fontWeight="700"
           fontFamily="inherit"
@@ -91,7 +108,7 @@ export function ICRGauge({ icr }: ICRGaugeProps) {
           x={CENTER}
           y={CENTER + 26}
           textAnchor="middle"
-          fill="#8A8278"
+          fill={dark ? "rgba(255,255,255,0.45)" : "#8A8278"}
           fontSize="9"
           fontFamily="inherit"
         >

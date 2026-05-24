@@ -1,135 +1,144 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Card } from "@/components/ui/Card";
-import { Button } from "@/components/ui/Button";
-import { ICRGauge } from "@/components/dashboard/ICRGauge";
-import { icrToTextClass } from "@/lib/utils";
+import { Badge } from "@/components/ui/Badge";
 import type { VaultParamsData } from "@/hooks/useVault";
-import { Settings, ShieldAlert } from "lucide-react";
+import { Clock, Bot } from "lucide-react";
 
 interface StrategyCardProps {
   params: VaultParamsData;
-  icr: bigint;
-  onDefend?: () => void;
-  isDefendLoading?: boolean;
+  btcPriceUsd: number;
+  lastSkimPrice: bigint;
+  createdAt?: bigint;
 }
 
-export function StrategyCard({
-  params,
-  icr,
-  onDefend,
-  isDefendLoading,
-}: StrategyCardProps) {
+function profileName(targetLTV: number): string {
+  if (targetLTV <= 4000) return "Conservative";
+  if (targetLTV <= 5000) return "Balanced";
+  if (targetLTV <= 7000) return "Aggressive";
+  return "Custom";
+}
+
+function formatAge(createdAtSec: number): string {
+  if (!createdAtSec) return "—";
+  const s = Math.max(0, Math.floor(Date.now() / 1000) - createdAtSec);
+  const d = Math.floor(s / 86400);
+  if (d > 0) return `${d}d`;
+  const h = Math.floor(s / 3600);
+  if (h > 0) return `${h}h`;
+  return `${Math.floor(s / 60)}m`;
+}
+
+export function StrategyCard({ params, btcPriceUsd, lastSkimPrice, createdAt }: StrategyCardProps) {
   const targetLtv = params.targetLTV / 100;
   const spendable = params.spendableShare / 100;
   const vaultPct = 100 - spendable;
   const skim = params.skimThresholdBps / 100;
   const defendIcr = params.defendICR / 100;
   const emergencyIcr = params.emergencyICR / 100;
+  const profile = profileName(params.targetLTV);
+  const age = formatAge(Number(createdAt ?? 0n));
 
-  const icrBps = Number(icr);
-  const icrColor = icrToTextClass(icrBps);
-  // defend() only succeeds while ICR sits below the defend threshold; above it
-  // the call reverts (ICRAboveDefend). icr is the cached value, so this is a
-  // best-effort signal — the keeper reads the live price.
-  const needsDefense = icrBps > 0 && icrBps < params.defendICR;
+  const lastSkim = Number(lastSkimPrice) / 1e18;
+  const movePct = lastSkim > 0 && btcPriceUsd > 0 ? ((btcPriceUsd - lastSkim) / lastSkim) * 100 : 0;
+  const skimProgress = skim > 0 ? Math.max(0, Math.min(1, movePct / skim)) : 0;
+  const skimReady = movePct >= skim && skim > 0;
+
+  const [grown, setGrown] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setGrown(true), 240);
+    return () => clearTimeout(id);
+  }, []);
 
   return (
-    <Card className="relative overflow-hidden">
-      <div className="flex items-start justify-between mb-6">
-        <div>
-          <p className="text-muted text-sm mb-0.5">Vault Strategy</p>
-          <p className="text-muted-2 text-xs">Risk parameters</p>
+    <Card className="relative overflow-hidden flex flex-col">
+      <div className="flex items-start justify-between mb-5">
+        <div className="flex items-center gap-2.5">
+          <span className="font-mono text-xs text-amber-500 tabular-nums">003</span>
+          <div>
+            <p className="text-[11px] uppercase tracking-[0.16em] text-muted font-medium">Strategy</p>
+            <p className="text-muted-2 text-xs">Self-driving rules</p>
+          </div>
         </div>
-        <Settings className="w-4 h-4 text-muted-2" />
+        <Badge variant="amber">{profile}</Badge>
       </div>
 
-      <div className="flex items-center gap-4 mb-6">
-        <ICRGauge icr={icr} />
-        <div className="flex-1 space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">Target LTV</span>
-            <span className="text-xs text-ink font-mono">{targetLtv.toFixed(0)}%</span>
+      <div className="grid sm:grid-cols-2 gap-x-8 gap-y-5">
+        {/* params */}
+        <div className="space-y-2.5">
+          <Row label="Target LTV" value={`${targetLtv.toFixed(0)}%`} />
+          <Row label="Defend below" value={`${defendIcr.toFixed(0)}%`} tone="text-warning" />
+          <Row label="Emergency below" value={`${emergencyIcr.toFixed(0)}%`} tone="text-danger" />
+          <Row label="Skim on BTC rise" value={`+${skim.toFixed(1)}%`} />
+        </div>
+
+        {/* allocation + skim */}
+        <div className="space-y-5">
+          <div>
+            <p className="text-[10px] uppercase tracking-[0.12em] text-muted-2 font-mono mb-2">
+              Each borrow splits into
+            </p>
+            <div className="flex h-2 rounded-full overflow-hidden gap-px bg-cream-300">
+              <div
+                className="bg-amber-400 rounded-l-full transition-[width] duration-[1100ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+                style={{ width: `${grown ? spendable : 0}%` }}
+              />
+              <div
+                className="bg-success rounded-r-full transition-[width] duration-[1100ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
+                style={{ width: `${grown ? vaultPct : 0}%` }}
+              />
+            </div>
+            <div className="flex justify-between mt-1.5">
+              <span className="text-[10px] text-amber-600 tabular-nums">Spendable {spendable.toFixed(0)}%</span>
+              <span className="text-[10px] text-success tabular-nums">Savings {vaultPct.toFixed(0)}%</span>
+            </div>
           </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">Defend at</span>
-            <span className="text-xs text-warning font-mono">{defendIcr.toFixed(0)}%</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">Emergency at</span>
-            <span className="text-xs text-danger font-mono">{emergencyIcr.toFixed(0)}%</span>
-          </div>
-          <div className="flex items-center justify-between">
-            <span className="text-xs text-muted">Current ICR</span>
-            <span className={`text-xs font-mono font-semibold ${icrColor}`}>
-              {(icrBps / 100).toFixed(0)}%
-            </span>
+
+          <div>
+            <div className="flex items-center justify-between text-[10px] font-mono mb-1.5">
+              <span className="uppercase tracking-[0.12em] text-muted-2">
+                {skimReady ? "Skim armed" : "Next auto-skim"}
+              </span>
+              <span className={`tabular-nums ${skimReady ? "text-success" : "text-muted"}`}>
+                +{movePct > 0 ? movePct.toFixed(1) : "0.0"}% / +{skim.toFixed(1)}%
+              </span>
+            </div>
+            <div className="h-1 rounded-full bg-cream-300 overflow-hidden">
+              <div
+                className={`h-full rounded-full transition-[width] duration-[1100ms] ease-[cubic-bezier(0.2,0.8,0.2,1)] ${skimReady ? "bg-success" : "bg-amber-400"}`}
+                style={{ width: `${grown ? skimProgress * 100 : 0}%` }}
+              />
+            </div>
           </div>
         </div>
       </div>
 
-      <div>
-        <p className="text-xs text-muted mb-2">MUSD allocation on borrow</p>
-        <div className="flex h-2 rounded-full overflow-hidden gap-px">
-          <div
-            className="bg-amber-400 rounded-l-full"
-            style={{ width: `${spendable}%` }}
-          />
-          <div
-            className="bg-success rounded-r-full"
-            style={{ width: `${vaultPct}%` }}
-          />
-        </div>
-        <div className="flex justify-between mt-1.5">
-          <span className="text-[10px] text-amber-600">Spendable {spendable.toFixed(0)}%</span>
-          <span className="text-[10px] text-success">sMUSD vault {vaultPct.toFixed(0)}%</span>
-        </div>
-        <p className="text-[10px] text-muted-2 mt-2">
-          Skim threshold: BTC needs +{skim.toFixed(1)}% vs last skim
-        </p>
+      <div className="mt-auto pt-4 border-t border-line flex items-center justify-between text-[11px] font-mono text-muted-2">
+        <span className="inline-flex items-center gap-1.5">
+          <Bot className="w-3.5 h-3.5 text-amber-500" /> Keeper running
+        </span>
+        <span className="inline-flex items-center gap-1.5">
+          <Clock className="w-3 h-3" /> {age} old
+        </span>
       </div>
-
-      {onDefend && (
-        <div className="mt-4 border-t border-line pt-4">
-          {needsDefense ? (
-            <>
-              <p className="text-xs text-warning mb-2 flex items-start gap-1.5">
-                <ShieldAlert className="w-3.5 h-3.5 mt-px flex-shrink-0" />
-                ICR is below your {defendIcr.toFixed(0)}% defend line. Repay debt
-                from your Shadow to lift it back up.
-              </p>
-              <Button
-                variant="primary"
-                size="sm"
-                className="w-full"
-                onClick={onDefend}
-                loading={isDefendLoading}
-                disabled={isDefendLoading}
-              >
-                Defend now
-              </Button>
-            </>
-          ) : (
-            <>
-              <p className="text-[11px] text-muted-2 mb-2">
-                Healthy. The keeper auto-defends if ICR drops below{" "}
-                {defendIcr.toFixed(0)}% — you can also trigger it manually
-                (does nothing while healthy).
-              </p>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="w-full"
-                onClick={onDefend}
-                loading={isDefendLoading}
-                disabled={isDefendLoading}
-              >
-                Defend now
-              </Button>
-            </>
-          )}
-        </div>
-      )}
     </Card>
+  );
+}
+
+function Row({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-xs text-muted">{label}</span>
+      <span className={`text-xs font-mono tabular-nums ${tone ?? "text-ink"}`}>{value}</span>
+    </div>
   );
 }

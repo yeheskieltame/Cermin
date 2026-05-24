@@ -11,6 +11,8 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Input } from "@/components/ui/Input";
 import { Logo } from "@/components/ui/Logo";
+import { motion, AnimatePresence } from "framer-motion";
+import { EASE_OUT } from "@/lib/motion";
 import { PRESETS, GOAL_LABELS, type RiskKey, type GoalLabel } from "@/lib/presets";
 import { simulate } from "@/lib/simulation";
 import { CONTRACTS, CERMIN_FACTORY_ABI } from "@/lib/contracts";
@@ -34,6 +36,12 @@ interface WizardState {
 }
 
 const TOTAL_STEPS = 5;
+
+const stepVariants = {
+  enter: (dir: number) => ({ x: dir > 0 ? 44 : -44, opacity: 0 }),
+  center: { x: 0, opacity: 1 },
+  exit: (dir: number) => ({ x: dir > 0 ? -44 : 44, opacity: 0 }),
+};
 
 // Mezo enforces a 2,000 MUSD minimum debt (1,800 + 200 gas). The borrow at open
 // is collateralValue * targetLTV, so a small deposit / low LTV reverts with
@@ -66,13 +74,13 @@ function StepHeader({
       <button
         onClick={onBack ?? undefined}
         disabled={!onBack}
-        className="w-10 h-10 rounded-full bg-white border border-line flex items-center justify-center disabled:opacity-30 hover:bg-surface-soft transition-colors"
+        className="w-10 h-10 rounded-full bg-surface border border-cream-300 shadow-sm flex items-center justify-center disabled:opacity-30 hover:border-amber-200 hover:-translate-y-px transition-all duration-200 active:translate-y-0"
       >
         <ArrowLeft className="w-4 h-4" />
       </button>
-      <div className="flex-1 h-1.5 rounded-full bg-line overflow-hidden">
+      <div className="flex-1 h-1.5 rounded-full bg-cream-300 overflow-hidden">
         <div
-          className="h-full rounded-full bg-shadow-900 transition-all duration-500"
+          className="h-full rounded-full bg-gradient-to-r from-amber-400 to-shadow-900 transition-[width] duration-500 ease-[cubic-bezier(0.2,0.8,0.2,1)]"
           style={{ width: `${pct}%` }}
         />
       </div>
@@ -105,14 +113,14 @@ function StepDeposit({
   const presets = ["0.07", "0.10", "0.25", "0.50"];
 
   return (
-    <div className="space-y-7 animate-fade-in">
+    <div className="space-y-7">
       <div>
         <Badge variant="amber" className="mb-3">
           <Bitcoin className="w-3 h-3" />
           Step 1
         </Badge>
-        <h2 className="text-3xl font-semibold tracking-tight text-ink">
-          How much BTC do you want to vault?
+        <h2 className="font-serif text-3xl font-medium tracking-[-0.02em] text-ink leading-tight">
+          How much BTC do you want to <em className="italic font-normal">vault</em>?
         </h2>
         <p className="text-muted text-sm mt-2">
           Your BTC stays locked. Only the borrowed dollars get spent.
@@ -143,10 +151,10 @@ function StepDeposit({
           <button
             key={p}
             onClick={() => onChange({ btcAmount: p })}
-            className={`h-11 rounded-full text-sm font-medium transition-all ${
+            className={`h-11 rounded-full text-sm font-medium transition-all duration-200 tabular-nums ${
               state.btcAmount === p
-                ? "bg-ink text-white"
-                : "bg-white border border-line text-ink hover:border-amber-200"
+                ? "bg-ink text-white shadow-soft"
+                : "bg-surface border border-cream-300 text-ink hover:border-amber-200 hover:-translate-y-px"
             }`}
           >
             {p}
@@ -202,11 +210,11 @@ function StepGoal({
   ];
 
   return (
-    <div className="space-y-7 animate-fade-in">
+    <div className="space-y-7">
       <div>
         <Badge variant="amber" className="mb-3">Step 2</Badge>
-        <h2 className="text-3xl font-semibold tracking-tight text-ink">
-          What&apos;s your goal?
+        <h2 className="font-serif text-3xl font-medium tracking-[-0.02em] text-ink leading-tight">
+          What&apos;s your <em className="italic font-normal">goal</em>?
         </h2>
         <p className="text-muted text-sm mt-2">
           Same vault either way — this just frames the experience.
@@ -223,8 +231,8 @@ function StepGoal({
               onClick={() => onChange({ goal: opt.key })}
               className={`w-full text-left rounded-3xl p-5 transition-all duration-200 flex items-start gap-4 ${
                 selected
-                  ? "bg-ink text-white shadow-pop"
-                  : "bg-white border border-line hover:border-amber-200"
+                  ? "bg-ink text-white shadow-lift"
+                  : "bg-surface border border-cream-300 hover:border-amber-200 hover:-translate-y-0.5 hover:shadow-soft"
               }`}
             >
               <div
@@ -305,14 +313,14 @@ function StepRisk({
         .meets);
 
   return (
-    <div className="space-y-7 animate-fade-in">
+    <div className="space-y-7">
       <div>
         <Badge variant="amber" className="mb-3">
           <TrendingUp className="w-3 h-3" />
           Step 3
         </Badge>
-        <h2 className="text-3xl font-semibold tracking-tight text-ink">
-          Pick your risk profile
+        <h2 className="font-serif text-3xl font-medium tracking-[-0.02em] text-ink leading-tight">
+          Pick your <em className="italic font-normal">risk profile</em>
         </h2>
         <p className="text-muted text-sm mt-2">
           Sets your borrow ratio and defense thresholds.
@@ -337,8 +345,8 @@ function StepRisk({
                 !affordable
                   ? "bg-surface-soft border border-line opacity-60 cursor-not-allowed"
                   : selected
-                    ? "bg-ink text-white shadow-pop"
-                    : "bg-white border border-line hover:border-amber-200"
+                    ? "bg-ink text-white shadow-lift"
+                    : "bg-surface border border-cream-300 hover:border-amber-200 hover:-translate-y-0.5 hover:shadow-soft"
               }`}
             >
               <div className="flex items-center justify-between mb-2">
@@ -400,14 +408,14 @@ function StepPreview({
     v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       <div>
         <Badge variant="amber" className="mb-3">
           <Zap className="w-3 h-3" />
           Step 4
         </Badge>
-        <h2 className="text-3xl font-semibold tracking-tight text-ink">
-          Your Shadow preview
+        <h2 className="font-serif text-3xl font-medium tracking-[-0.02em] text-ink leading-tight">
+          Your <em className="italic font-normal text-amber-600">Shadow</em> preview
         </h2>
         <p className="text-muted text-sm mt-2">
           Estimated income from {btcNum.toFixed(4)} BTC.
@@ -554,10 +562,12 @@ function StepConfirm({
     return (
       <div className="space-y-7 animate-fade-in text-center">
         <div className="w-20 h-20 rounded-full bg-success/15 flex items-center justify-center mx-auto animate-soft-pulse">
-          <CheckCircle2 className="w-10 h-10 text-success" />
+          <CheckCircle2 className="w-10 h-10 text-success animate-scale-in" />
         </div>
         <div>
-          <h2 className="text-3xl font-semibold tracking-tight">Vault created</h2>
+          <h2 className="font-serif text-3xl font-medium tracking-[-0.02em]">
+            Vault <em className="italic font-normal text-success">created</em>
+          </h2>
           <p className="text-muted text-sm mt-2 max-w-sm mx-auto">
             Your Cermin vault is live on Mezo testnet. The Shadow is active and the
             keeper bot is watching.
@@ -588,11 +598,11 @@ function StepConfirm({
   }
 
   return (
-    <div className="space-y-6 animate-fade-in">
+    <div className="space-y-6">
       <div>
         <Badge variant="amber" className="mb-3">Step 5</Badge>
-        <h2 className="text-3xl font-semibold tracking-tight text-ink">
-          Confirm &amp; sign
+        <h2 className="font-serif text-3xl font-medium tracking-[-0.02em] text-ink leading-tight">
+          Confirm &amp; <em className="italic font-normal">sign</em>
         </h2>
         <p className="text-muted text-sm mt-2">
           One transaction creates and funds your vault.
@@ -706,6 +716,7 @@ interface OnboardingWizardProps {
 export function OnboardingWizard({ btcPriceUsd, onComplete }: OnboardingWizardProps) {
   const router = useRouter();
   const [step, setStep] = useState(0);
+  const [dir, setDir] = useState(1);
   const [state, setState] = useState<WizardState>({
     btcAmount: "",
     btcPriceUsd,
@@ -724,8 +735,14 @@ export function OnboardingWizard({ btcPriceUsd, onComplete }: OnboardingWizardPr
     (p: Partial<WizardState>) => setState((s) => ({ ...s, ...p })),
     [],
   );
-  const next = useCallback(() => setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1)), []);
-  const back = useCallback(() => setStep((s) => Math.max(s - 1, 0)), []);
+  const next = useCallback(() => {
+    setDir(1);
+    setStep((s) => Math.min(s + 1, TOTAL_STEPS - 1));
+  }, []);
+  const back = useCallback(() => {
+    setDir(-1);
+    setStep((s) => Math.max(s - 1, 0));
+  }, []);
 
   // Step 0 back exits the wizard to landing; the confirm step locks back.
   const onBack =
@@ -735,22 +752,34 @@ export function OnboardingWizard({ btcPriceUsd, onComplete }: OnboardingWizardPr
     <div className="bg-app min-h-[100svh]">
       <header className="glass border-b border-line/60 sticky top-0 z-30">
         <div className="mx-auto max-w-xl px-5 h-14 flex items-center justify-between pad-safe-top">
-          <Link href="/" aria-label="Cermin home">
+          <Link href="/" aria-label="Cermin home" className="transition-opacity hover:opacity-80">
             <Logo />
           </Link>
-          <span className="text-xs text-muted">Open vault</span>
+          <span className="text-[11px] uppercase tracking-[0.18em] text-muted">Open vault</span>
         </div>
       </header>
 
       <main className="mx-auto max-w-xl px-5 py-6">
         <StepHeader step={step} total={TOTAL_STEPS} onBack={onBack} />
 
-        <Card className="!p-6 sm:!p-8">
-          {step === 0 && <StepDeposit state={state} onChange={patch} onNext={next} />}
-          {step === 1 && <StepGoal state={state} onChange={patch} onNext={next} />}
-          {step === 2 && <StepRisk state={state} onChange={patch} onNext={next} />}
-          {step === 3 && <StepPreview state={state} onNext={next} onBack={back} />}
-          {step === 4 && <StepConfirm state={state} onSuccess={onComplete} />}
+        <Card className="!p-6 sm:!p-8 overflow-hidden">
+          <AnimatePresence mode="wait" custom={dir} initial={false}>
+            <motion.div
+              key={step}
+              custom={dir}
+              variants={stepVariants}
+              initial="enter"
+              animate="center"
+              exit="exit"
+              transition={{ duration: 0.32, ease: EASE_OUT }}
+            >
+              {step === 0 && <StepDeposit state={state} onChange={patch} onNext={next} />}
+              {step === 1 && <StepGoal state={state} onChange={patch} onNext={next} />}
+              {step === 2 && <StepRisk state={state} onChange={patch} onNext={next} />}
+              {step === 3 && <StepPreview state={state} onNext={next} onBack={back} />}
+              {step === 4 && <StepConfirm state={state} onSuccess={onComplete} />}
+            </motion.div>
+          </AnimatePresence>
         </Card>
       </main>
     </div>

@@ -14,19 +14,28 @@ import { ShadowBalanceCard } from "@/components/dashboard/ShadowBalanceCard";
 import { StrategyCard } from "@/components/dashboard/StrategyCard";
 import { ActivityFeed } from "@/components/dashboard/ActivityFeed";
 import { CloseVaultPanel } from "@/components/dashboard/CloseVaultPanel";
-import { formatUsd, truncateAddress, formatTxError } from "@/lib/utils";
-import { Badge } from "@/components/ui/Badge";
+import { VaultHero } from "@/components/dashboard/VaultHero";
+import { BtcPriceChart } from "@/components/dashboard/BtcPriceChart";
+import { SavingsSection } from "@/components/dashboard/SavingsSection";
+import { useSavings } from "@/hooks/useSavings";
+import { useSavingsActions } from "@/hooks/useSavingsActions";
+import { formatTxError } from "@/lib/utils";
 import { buttonClasses } from "@/components/ui/Button";
-import { ExternalLink, ArrowRight, Sparkles } from "lucide-react";
+import { LineShadowText } from "@/components/ui/LineShadowText";
+import { motion } from "framer-motion";
+import { fadeUp, staggerContainer } from "@/lib/motion";
+import { ArrowRight, Sparkles } from "lucide-react";
 
 const TESTNET_PRICE_FALLBACK = 95_000;
 
 function SkeletonCard() {
+  const bar =
+    "rounded bg-gradient-to-r from-cream-200 via-cream-100 to-cream-200 bg-[length:200%_100%] animate-shimmer";
   return (
-    <div className="rounded-3xl border border-line bg-surface p-6 animate-pulse">
-      <div className="h-4 bg-cream-200 rounded w-1/3 mb-6" />
-      <div className="h-10 bg-cream-200 rounded w-2/3 mb-3" />
-      <div className="h-3 bg-cream-200 rounded w-1/2" />
+    <div className="rounded-3xl border border-cream-300 bg-surface p-6">
+      <div className={`h-4 w-1/3 mb-6 ${bar}`} />
+      <div className={`h-10 w-2/3 mb-3 ${bar}`} />
+      <div className={`h-3 w-1/2 ${bar}`} />
     </div>
   );
 }
@@ -63,16 +72,16 @@ function NoPositionState() {
   return (
     <div className="max-w-6xl mx-auto px-6 py-10">
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-ink">Your Dashboard</h1>
+        <h1 className="font-serif text-[1.75rem] font-medium tracking-[-0.02em] text-ink">Your Dashboard</h1>
         <p className="text-muted text-sm mt-1">No open position yet.</p>
       </div>
 
-      <div className="rounded-3xl border border-line bg-surface shadow-soft p-10 md:p-16 text-center">
-        <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-6">
+      <div className="rounded-3xl border border-cream-300 bg-surface shadow-[inset_0_1px_0_rgba(255,255,255,0.6),0_4px_12px_rgba(58,53,48,0.06)] p-10 md:p-16 text-center animate-rise-in">
+        <div className="w-16 h-16 mx-auto rounded-2xl bg-amber-50 text-amber-600 flex items-center justify-center mb-6 shadow-glow-amber animate-float">
           <Sparkles className="w-7 h-7" />
         </div>
-        <h2 className="text-2xl font-semibold tracking-tight text-ink">
-          Open your first position
+        <h2 className="font-serif text-[1.9rem] font-medium tracking-[-0.02em] text-ink">
+          Open your <em className="italic font-normal text-amber-600">first position</em>
         </h2>
         <p className="text-muted text-sm mt-3 max-w-md mx-auto leading-relaxed">
           Deposit BTC once and Cermin opens a Mezo vault that pays you a dollar
@@ -125,6 +134,8 @@ export default function DashboardPage() {
     closeHash,
     approveHash,
   } = useVaultActions(vaultAddress);
+  const savings = useSavings();
+  const savingsActions = useSavingsActions();
 
   useEffect(() => {
     if (!isConnected) router.replace("/");
@@ -145,32 +156,52 @@ export default function DashboardPage() {
   if (!derived || !state || !params) return null;
 
   const { effectiveBtcPrice, collValue, spendable, vaultValue } = derived;
+  const icrNum = Number(icr ?? 0n);
+  const needsDefense = icrNum > 0 && icrNum < params.defendICR;
+  const btcAmt = Number(collValue) / 1e18;
+  const debtMusdNum = Number(debt ?? 0n) / 1e18;
+  const liqPrice = btcAmt > 0 ? (1.1 * debtMusdNum) / btcAmt : 0;
+  const defensePrice = btcAmt > 0 ? ((params.defendICR / 10000) * debtMusdNum) / btcAmt : 0;
 
   return (
-    <div className="max-w-6xl mx-auto px-6 py-10">
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink">Your Vault</h1>
-          <div className="flex items-center gap-2 mt-1">
-            <p className="text-muted text-sm font-mono">{truncateAddress(vaultAddress!)}</p>
-            <a
-              href={`https://explorer.test.mezo.org/address/${vaultAddress}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-muted-2 hover:text-ink transition-colors"
-              aria-label="Open vault on explorer"
-            >
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
-        </div>
-        <div className="flex items-center gap-2">
-          <Badge variant="success">Active</Badge>
-          {effectiveBtcPrice > 0 && (
-            <Badge variant="default">BTC {formatUsd(effectiveBtcPrice, 0)}</Badge>
-          )}
-        </div>
+    <div className="relative">
+      <div aria-hidden className="pointer-events-none absolute inset-x-0 top-0 h-[440px] overflow-hidden">
+        <div className="absolute -top-28 left-1/2 -translate-x-1/2 w-[52rem] h-[30rem] rounded-full bg-amber-200/25 blur-[120px]" />
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundImage: "radial-gradient(rgba(92,84,72,0.10) 1px, transparent 1px)",
+            backgroundSize: "24px 24px",
+            maskImage: "linear-gradient(to bottom, black, transparent)",
+            WebkitMaskImage: "linear-gradient(to bottom, black, transparent)",
+          }}
+        />
       </div>
+      <motion.div
+        variants={staggerContainer(0.08, 0.05)}
+        initial="hidden"
+        animate="show"
+        className="relative max-w-6xl mx-auto px-6 py-10"
+      >
+        <motion.div variants={fadeUp} className="mb-7">
+          <div className="inline-flex items-center gap-2.5 rounded-full border border-cream-300 bg-surface/70 backdrop-blur px-3 py-1.5 mb-3">
+            <span className={`w-1.5 h-1.5 rounded-full animate-pulse ${needsDefense ? "bg-warning" : "bg-success"}`} />
+            <span className="font-mono text-[11px] uppercase tracking-[0.18em] text-ink">
+              {needsDefense ? "Action needed" : "All systems go"}
+            </span>
+          </div>
+          <h1 className="font-serif text-[2rem] md:text-[2.5rem] font-medium tracking-[-0.02em] text-ink leading-tight">
+            Your{" "}
+            <LineShadowText as="span" shadowColor="#C77A3A" className="text-ink">
+              Vault
+            </LineShadowText>
+          </h1>
+          <p className="text-muted mt-2.5 text-pretty max-w-xl leading-relaxed">
+            {needsDefense
+              ? "Your vault dipped below its defense line — hit Defend below to recover."
+              : "Your BTC is locked and safe. Cermin skims the peaks, defends the dips, and earns on idle dollars — automatically."}
+          </p>
+        </motion.div>
 
       {withdrawError && (
         <div className="mb-4 rounded-2xl bg-danger/8 border border-danger/25 px-4 py-3">
@@ -199,32 +230,88 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 mb-4">
-        <BtcBalanceCard
+      <motion.div variants={fadeUp} className="mb-4">
+        <VaultHero
+          vaultAddress={vaultAddress!}
           collateral={collValue}
-          btcPriceUsd={effectiveBtcPrice}
-          onAddCollateral={addCollateral}
-          isAddCollateralLoading={isAddCollateralLoading}
-        />
-        <ShadowBalanceCard
-          spendableMusd={spendable}
-          vaultValue={vaultValue}
-          onWithdraw={withdrawSpendable}
-          isWithdrawLoading={isWithdrawLoading}
-        />
-        <StrategyCard
-          params={params}
+          debt={debt ?? 0n}
           icr={icr ?? 0n}
+          btcPriceUsd={effectiveBtcPrice}
+          defendICR={params.defendICR}
           onDefend={defend}
           isDefendLoading={isDefendLoading}
         />
-      </div>
+      </motion.div>
 
-      <div className="grid grid-cols-1 gap-4">
+      <motion.div variants={fadeUp} className="mb-4">
+        <BtcPriceChart
+          currentPrice={effectiveBtcPrice}
+          liquidationPrice={liqPrice}
+          defensePrice={defensePrice}
+        />
+      </motion.div>
+
+      <motion.div variants={fadeUp} className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <motion.div
+          whileHover={{ y: -4, transition: { type: "spring", stiffness: 400, damping: 26 } }}
+          className="[&>*]:h-full"
+        >
+          <BtcBalanceCard
+            collateral={collValue}
+            debt={debt ?? 0n}
+            btcPriceUsd={effectiveBtcPrice}
+            onAddCollateral={addCollateral}
+            isAddCollateralLoading={isAddCollateralLoading}
+          />
+        </motion.div>
+        <motion.div
+          whileHover={{ y: -4, transition: { type: "spring", stiffness: 400, damping: 26 } }}
+          className="[&>*]:h-full"
+        >
+          <ShadowBalanceCard
+            spendableMusd={spendable}
+            onWithdraw={withdrawSpendable}
+            isWithdrawLoading={isWithdrawLoading}
+          />
+        </motion.div>
+        <motion.div
+          whileHover={{ y: -4, transition: { type: "spring", stiffness: 400, damping: 26 } }}
+          className="[&>*]:h-full"
+        >
+          <StrategyCard
+            params={params}
+            btcPriceUsd={effectiveBtcPrice}
+            lastSkimPrice={state.lastSkimPrice}
+            createdAt={state.createdAt}
+          />
+        </motion.div>
+      </motion.div>
+
+      <motion.div variants={fadeUp} className="mb-8">
+        <SavingsSection
+          poolTvl={savings.poolTvl}
+          aprPct={5}
+          vaultSavings={vaultValue}
+          vaultPrincipal={state.smusdShares}
+          userShares={savings.userShares}
+          userYield={savings.userYield}
+          walletMusd={savings.walletMusd}
+          allowance={savings.allowance}
+          onDeposit={savingsActions.deposit}
+          onWithdraw={savingsActions.withdraw}
+          onClaim={savingsActions.claim}
+          depositPhase={savingsActions.depositPhase}
+          isDepositing={savingsActions.isDepositing}
+          isWithdrawing={savingsActions.isWithdrawing}
+          isClaiming={savingsActions.isClaiming}
+        />
+      </motion.div>
+
+      <motion.div variants={fadeUp} className="grid grid-cols-1 gap-4">
         <ActivityFeed vaultAddress={vaultAddress!} />
-      </div>
+      </motion.div>
 
-      <div className="mt-8">
+      <motion.div variants={fadeUp} className="mt-8">
         <CloseVaultPanel
           vaultAddress={vaultAddress!}
           debt={debt ?? 0n}
@@ -237,7 +324,8 @@ export default function DashboardPage() {
           closeHash={closeHash}
           approveHash={approveHash}
         />
-      </div>
+      </motion.div>
+      </motion.div>
     </div>
   );
 }

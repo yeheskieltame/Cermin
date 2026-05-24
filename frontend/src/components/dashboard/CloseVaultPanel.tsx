@@ -85,27 +85,29 @@ export function CloseVaultPanel({
     return shortfall > 0n ? "Approve & close vault" : "Close vault";
   })();
 
+  const covered = spendable + vaultValue > toBurn ? toBurn : spendable + vaultValue;
+
   return (
-    <Card className="border-danger/20 bg-danger/[0.03]">
-      <div className="flex items-start gap-3 mb-5">
-        <div className="w-9 h-9 rounded-full bg-danger/10 flex items-center justify-center shrink-0">
-          <AlertTriangle className="w-4 h-4 text-danger" />
+    <Card className="relative overflow-hidden border-danger/20 bg-danger/[0.025]">
+      <div className="flex items-start gap-3.5 mb-5">
+        <div className="w-10 h-10 rounded-2xl bg-danger/10 flex items-center justify-center shrink-0">
+          <AlertTriangle className="w-5 h-5 text-danger" />
         </div>
         <div>
-          <p className="text-sm font-medium text-ink">Close vault</p>
-          <p className="text-xs text-muted mt-0.5 max-w-md">
-            Repays your MUSD debt and returns your BTC collateral. This burns the
-            spendable balance and the sMUSD vault. Irreversible.
+          <p className="font-mono text-[10px] uppercase tracking-[0.18em] text-danger/70 mb-1">
+            005 · Danger zone
+          </p>
+          <p className="text-sm font-semibold text-ink">Close vault</p>
+          <p className="text-xs text-muted mt-1 max-w-lg leading-relaxed">
+            Repays your MUSD debt and unlocks your BTC. Your Shadow (spendable +
+            savings) is spent to clear the loan — this can&apos;t be undone.
           </p>
         </div>
       </div>
 
-      <div className="rounded-xl bg-surface-soft border border-line p-4 space-y-2 mb-4 text-xs">
+      <div className="rounded-2xl bg-surface border border-cream-300 divide-y divide-line/70 mb-4">
         <Row label="Debt to repay" value={formatMusd(toBurn)} />
-        <Row
-          label="Covered by vault"
-          value={formatMusd(spendable + vaultValue > toBurn ? toBurn : spendable + vaultValue)}
-        />
+        <Row label="Covered by your Shadow" value={formatMusd(covered)} tone="success" />
         <Row
           label="Pulled from your wallet"
           value={formatMusd(shortfall)}
@@ -122,25 +124,23 @@ export function CloseVaultPanel({
 
       {shortfall > 0n && !hasEnoughMusd && (
         <p className="text-xs text-danger mb-3">
-          You need {formatMusd(shortfall - ownerMusdBalance)} more MUSD in your
-          wallet to close this vault.
+          You need {formatMusd(shortfall - ownerMusdBalance)} more MUSD in your wallet to
+          close this vault.
         </p>
       )}
 
       {closeError ? (
-        <p className="text-xs text-danger mb-3 break-words">
-          {formatTxError(closeError)}
-        </p>
+        <p className="text-xs text-danger mb-3 break-words">{formatTxError(closeError)}</p>
       ) : null}
 
       {(approveHash || closeHash) && (
-        <div className="text-[11px] text-muted mb-3 space-y-0.5">
+        <div className="flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-mono text-muted mb-3">
           {approveHash && (
             <a
               href={`https://explorer.test.mezo.org/tx/${approveHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="block hover:text-ink transition-colors"
+              className="hover:text-ink transition-colors"
             >
               Approve tx ↗
             </a>
@@ -150,7 +150,7 @@ export function CloseVaultPanel({
               href={`https://explorer.test.mezo.org/tx/${closeHash}`}
               target="_blank"
               rel="noopener noreferrer"
-              className="block hover:text-ink transition-colors"
+              className="hover:text-ink transition-colors"
             >
               Close tx ↗
             </a>
@@ -158,12 +158,12 @@ export function CloseVaultPanel({
         </div>
       )}
 
-      <label className="flex items-center gap-2 mb-4 cursor-pointer select-none">
+      <label className="flex items-center gap-2.5 mb-4 cursor-pointer select-none">
         <input
           type="checkbox"
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
-          className="w-4 h-4 rounded border-line accent-danger"
+          className="w-4 h-4 rounded border-cream-400 accent-danger"
         />
         <span className="text-xs text-muted">
           I understand this closes my vault and returns my BTC.
@@ -172,7 +172,7 @@ export function CloseVaultPanel({
 
       <Button
         variant="danger"
-        size="sm"
+        size="md"
         onClick={handleClose}
         loading={isCloseLoading}
         disabled={
@@ -196,18 +196,20 @@ function Row({
 }: {
   label: string;
   value: string;
-  tone?: "muted" | "warn" | "danger";
+  tone?: "muted" | "warn" | "danger" | "success";
 }) {
   const color =
     tone === "warn"
       ? "text-warning"
       : tone === "danger"
-      ? "text-danger"
-      : "text-ink";
+        ? "text-danger"
+        : tone === "success"
+          ? "text-success"
+          : "text-ink";
   return (
-    <div className="flex items-center justify-between">
-      <span className="text-muted">{label}</span>
-      <span className={`font-mono ${color}`}>{value}</span>
+    <div className="flex items-center justify-between px-4 py-3">
+      <span className="text-xs text-muted">{label}</span>
+      <span className={`text-sm font-mono tabular-nums ${color}`}>{value}</span>
     </div>
   );
 }
