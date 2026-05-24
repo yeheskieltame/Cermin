@@ -235,6 +235,7 @@ export default function DashboardPage() {
           vaultAddress={vaultAddress!}
           collateral={collValue}
           debt={debt ?? 0n}
+          spendable={spendable}
           icr={icr ?? 0n}
           btcPriceUsd={effectiveBtcPrice}
           defendICR={params.defendICR}

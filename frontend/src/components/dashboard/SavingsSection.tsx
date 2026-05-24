@@ -68,8 +68,8 @@ export function SavingsSection(p: SavingsSectionProps) {
           walletMusd={wallet}
           userShares={userPrin}
           allowance={p.allowance}
-          onDeposit={p.onDeposit}
-          onWithdraw={p.onWithdraw}
+          onDeposit={(wei, allowance) => p.onDeposit(wei > p.walletMusd ? p.walletMusd : wei, allowance)}
+          onWithdraw={(wei) => p.onWithdraw(wei > p.userShares ? p.userShares : wei)}
           depositPhase={p.depositPhase}
           isDepositing={p.isDepositing}
           isWithdrawing={p.isWithdrawing}

@@ -36,11 +36,14 @@ export function BtcBalanceCard({
   const [amount, setAmount] = useState("");
   const [barW, setBarW] = useState(0);
   useEffect(() => {
-    const id = setTimeout(
-      () => requestAnimationFrame(() => setBarW(Math.min(100, (ltvPct / MEZO_MAX_LTV) * 100))),
-      200,
-    );
-    return () => clearTimeout(id);
+    let raf = 0;
+    const id = setTimeout(() => {
+      raf = requestAnimationFrame(() => setBarW(Math.min(100, (ltvPct / MEZO_MAX_LTV) * 100)));
+    }, 200);
+    return () => {
+      clearTimeout(id);
+      cancelAnimationFrame(raf);
+    };
   }, [ltvPct]);
 
   const validation = useMemo(() => {

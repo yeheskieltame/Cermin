@@ -32,7 +32,14 @@ export function AnimatedNumber({ value, format, className, durationMs = 1100 }: 
       fromRef.current = Number.isFinite(value) ? value : 0;
       return;
     }
-    if (!inView) return;
+    if (!inView) {
+      // Below the fold: show the real value immediately so a live balance never
+      // stays stuck at format(0). The count-up still plays the first time it
+      // scrolls into view (fromRef resets there only if it was still 0).
+      node.textContent = formatRef.current(value);
+      fromRef.current = value;
+      return;
+    }
     const controls = animate(fromRef.current, value, {
       duration: durationMs / 1000,
       ease: EASE_OUT,

@@ -16,16 +16,22 @@ export function SmoothScroll({ children }: { children: ReactNode }) {
 
   return (
     <MotionConfig reducedMotion="user">
-      {reduce ? (
-        children
-      ) : (
-        <ReactLenis
-          root
-          options={{ lerp: 0.085, smoothWheel: true, wheelMultiplier: 1, touchMultiplier: 1.4 }}
-        >
-          {children}
-        </ReactLenis>
-      )}
+      {/* Always render the same ReactLenis wrapper so the tree shape stays stable
+          across the reduced-motion hydration flip — a conditional wrapper would
+          remount the whole subtree and reset in-progress UI (e.g. the wizard).
+          Reduced-motion users get effectively instant scroll (lerp 1, no wheel
+          smoothing) without tearing down the tree. */}
+      <ReactLenis
+        root
+        options={{
+          lerp: reduce ? 1 : 0.085,
+          smoothWheel: !reduce,
+          wheelMultiplier: 1,
+          touchMultiplier: 1.4,
+        }}
+      >
+        {children}
+      </ReactLenis>
     </MotionConfig>
   );
 }

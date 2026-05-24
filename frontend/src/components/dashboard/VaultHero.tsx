@@ -13,6 +13,7 @@ interface VaultHeroProps {
   vaultAddress: `0x${string}`;
   collateral: bigint;
   debt: bigint;
+  spendable: bigint;
   icr: bigint;
   btcPriceUsd: number;
   defendICR: number;
@@ -24,6 +25,7 @@ export function VaultHero({
   vaultAddress,
   collateral,
   debt,
+  spendable,
   icr,
   btcPriceUsd,
   defendICR,
@@ -33,6 +35,7 @@ export function VaultHero({
   const btcAmount = Number(collateral) / 1e18;
   const collUsd = btcAmount * btcPriceUsd;
   const debtMusd = Number(debt) / 1e18;
+  const spendableUsd = Number(spendable) / 1e18;
   const netEquity = collUsd - debtMusd;
 
   const icrBps = Number(icr);
@@ -66,7 +69,7 @@ export function VaultHero({
       <div className="absolute -top-16 -right-4 w-60 h-60 rounded-full bg-amber-500/20 blur-3xl pointer-events-none" />
 
       <div className="relative grid lg:grid-cols-[1.35fr_1fr] gap-8 items-center">
-        {/* left — net position value */}
+        {/* left — the Shadow (what you live on), cast from BTC held whole */}
         <div>
           <div className="flex flex-wrap items-center gap-2.5 mb-5">
             <span className="text-[10px] uppercase tracking-[0.2em] text-amber-300/80 font-mono">Vault</span>
@@ -85,18 +88,20 @@ export function VaultHero({
             </span>
           </div>
 
-          <p className="text-[11px] uppercase tracking-[0.18em] text-white/45 font-mono mb-2">
-            Net position value
+          <p className="text-[11px] uppercase tracking-[0.18em] text-amber-300/80 font-mono mb-2">
+            The Shadow · what you live on
           </p>
           <AnimatedNumber
-            value={netEquity}
+            value={spendableUsd}
             format={(n) => formatUsd(n)}
             className="block text-[2.9rem] md:text-[3.4rem] font-semibold tabular-nums tracking-tight text-cream-50 leading-none"
           />
           <p className="text-sm text-white/55 mt-3">
-            Collateral{" "}
-            <span className="text-cream-100 tabular-nums">{formatUsd(collUsd)}</span> − debt{" "}
-            <span className="text-cream-100 tabular-nums">{formatUsd(debtMusd)}</span>
+            Spendable now · cast from{" "}
+            <span className="text-cream-100 tabular-nums">{btcAmount.toFixed(4)} BTC</span> held whole
+          </p>
+          <p className="text-xs text-white/40 mt-1.5 tabular-nums">
+            Net position {formatUsd(netEquity)} · borrowed {formatUsd(debtMusd)}
           </p>
         </div>
 

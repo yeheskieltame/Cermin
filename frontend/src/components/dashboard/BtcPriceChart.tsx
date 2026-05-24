@@ -78,7 +78,7 @@ export function BtcPriceChart({ currentPrice, liquidationPrice, defensePrice }: 
     const pts = data.map((d, i) => ({ x: xOf(i), y: yOf(d.p) }));
     const line = smooth(pts);
     const area = `${line} L ${pts[pts.length - 1].x} ${PLOT_BOTTOM} L ${pts[0].x} ${PLOT_BOTTOM} Z`;
-    const change = ((data[data.length - 1].p - data[0].p) / data[0].p) * 100;
+    const change = data[0].p !== 0 ? ((data[data.length - 1].p - data[0].p) / data[0].p) * 100 : 0;
     const ticks = [0, Math.floor(data.length / 2), data.length - 1].map((i) => ({
       x: xOf(i),
       label: new Date(data[i].t).toLocaleDateString("en-US", { month: "short", day: "numeric" }),
