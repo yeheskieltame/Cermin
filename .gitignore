@@ -48,3 +48,11 @@ video/
 # Installed agent skills (Remotion best-practices etc.)
 .agents/
 skills-lock.json
+
+# Local-only submission artifacts (kept on disk, never published)
+Cermin-Pitch-Deck.pptx
+SUBMISSION.txt
+
+# Internal docs kept local, intentionally not in the public repo
+BLUEPRINT.md
+CLAUDE.md

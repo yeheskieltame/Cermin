@@ -69,4 +69,4 @@ Block explorer: https://explorer.test.mezo.org/
 - `via_ir = true` is enabled in `foundry.toml` to compile the vault under stack-deep inlining.
 - The implementation contract calls `_initialized = true` in its constructor — only clones can be initialized.
 - `defend()` is permissionless. Anyone can trigger it when ICR drops below `defendICR`.
-- See `BLUEPRINT.md` (project root) for the full spec and validation rules.
+- See the root `README.md` and `src/CerminVault.sol` for the full spec and validation rules.

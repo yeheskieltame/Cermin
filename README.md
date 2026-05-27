@@ -8,7 +8,7 @@
 
 Self-driving Bitcoin banking on Mezo. Deposit BTC once; Cermin handles borrow management, yield deployment, peak skimming, and liquidation defense automatically.
 
-[Live App](https://cermin-gamma.vercel.app) · [Block Explorer](https://explorer.test.mezo.org/) · [Technical Blueprint](./BLUEPRINT.md) · [Mezo Docs](https://mezo.org/docs/developers/)
+[Live App](https://cermin-gamma.vercel.app) · [Block Explorer](https://explorer.test.mezo.org/) · [Mezo Docs](https://mezo.org/docs/developers/)
 
 Built for the Supernormal Foundation x Mezo global hackathon.
 
@@ -128,7 +128,7 @@ Two-line summary of the autopilot:
 - **BTC pumps** -> the trove gains borrow headroom -> `skim()` converts part of it into spendable dollars and part into savings.
 - **BTC dumps** -> the collateral ratio narrows -> `defend()` repays debt to pull the ratio back to safety. BTC is never sold.
 
-See [`contracts/src/CerminVault.sol`](./contracts/src/CerminVault.sol) for the implementation and [`BLUEPRINT.md`](./BLUEPRINT.md) for the full specification.
+See [`contracts/src/CerminVault.sol`](./contracts/src/CerminVault.sol) for the implementation.
 
 ---
 
@@ -299,9 +299,7 @@ cermin/
 │   └── script/         Deploy.s.sol
 ├── agent/              deterministic keeper service (monitors, executors, health)
 ├── frontend/           Next.js 14 app (onboarding wizard + dashboard)
-├── README.md           this file
-├── BLUEPRINT.md        full technical specification (source of truth)
-└── CLAUDE.md           contributor and conventions guide
+└── README.md           this file
 ```
 
 ---
@@ -378,7 +376,7 @@ Key Mezo parameters Cermin builds on: borrow rate 1% APR fixed (locked at open),
 
 ## License
 
-Released under the MIT License.
+Released under the [MIT License](./LICENSE).
 
 <div align="center">
 
